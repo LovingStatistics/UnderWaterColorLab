@@ -132,7 +132,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
         <div id="upload-prompt">
           <div class="upload-ring">📷</div>
           <h2>Drop an underwater photo</h2>
-          <p>Upload a photo. The enhancer auto-detects color cast, restores lost wavelengths, adds clarity, protects highlights, and sharpens edges without wrecking the natural underwater look.</p>
+          <p>Upload a photo. The algorithm auto-detects color cast and restores lost wavelengths via hue-shift and per-channel histogram stretching.</p>
           <button class="btn-primary" style="margin-top:8px;max-width:180px;padding:10px 20px" onclick="document.getElementById('file-input').click()">Choose image</button>
         </div>
         <div class="canvas-split" id="split-view">
@@ -188,18 +188,6 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
             <input type="range" id="sl-sat" min="-50" max="100" value="0" oninput="onSlider(this,'val-sat'); applyFilter()">
           </div>
           <div class="slider-row">
-            <div class="slider-header"><span class="slider-name">Water clarity</span><span class="slider-val" id="val-cla">+10</span></div>
-            <input type="range" id="sl-cla" min="0" max="100" value="10" oninput="onSlider(this,'val-cla'); applyFilter()">
-          </div>
-          <div class="slider-row">
-            <div class="slider-header"><span class="slider-name">Gamma</span><span class="slider-val" id="val-gam">1.00</span></div>
-            <input type="range" id="sl-gam" min="70" max="150" value="100" oninput="onSlider(this,'val-gam','',0.01,true); applyFilter()">
-          </div>
-          <div class="slider-row">
-            <div class="slider-header"><span class="slider-name">Denoise</span><span class="slider-val" id="val-den">+10</span></div>
-            <input type="range" id="sl-den" min="0" max="100" value="10" oninput="onSlider(this,'val-den'); applyFilter()">
-          </div>
-          <div class="slider-row">
             <div class="slider-header"><span class="slider-name">Histogram clip %</span><span class="slider-val" id="val-thr">0.5%</span></div>
             <input type="range" id="sl-thr" min="1" max="40" value="5" oninput="onSlider(this,'val-thr','%',0.1); recompute()">
           </div>
@@ -227,14 +215,13 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
 <script>
 'use strict';
 
+// ── state ──
 let origData = null;
-let filterStats = null;
+let filterMatrix = null;
 let currentView = 'split';
 
-const fileInput = document.getElementById('file-input');
-const wrapper = document.getElementById('canvas-wrapper');
-
-fileInput.addEventListener('change', e => {
+// ── file I/O ──
+document.getElementById('file-input').addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
   const r = new FileReader();
@@ -243,30 +230,17 @@ fileInput.addEventListener('change', e => {
   e.target.value = '';
 });
 
-wrapper.addEventListener('dragover', e => { e.preventDefault(); wrapper.style.outline = '2px dashed rgba(0,200,255,.4)'; });
+const wrapper = document.getElementById('canvas-wrapper');
+wrapper.addEventListener('dragover',  e => { e.preventDefault(); wrapper.style.outline = '2px dashed rgba(0,200,255,.4)'; });
 wrapper.addEventListener('dragleave', () => { wrapper.style.outline = ''; });
 wrapper.addEventListener('drop', e => {
-  e.preventDefault();
-  wrapper.style.outline = '';
+  e.preventDefault(); wrapper.style.outline = '';
   const f = e.dataTransfer.files[0];
-  if (!f || !f.type.startsWith('image/')) return;
-  const r = new FileReader();
-  r.onload = ev => loadImage(ev.target.result);
-  r.readAsDataURL(f);
+  if (f && f.type.startsWith('image/')) { const r = new FileReader(); r.onload = ev => loadImage(ev.target.result); r.readAsDataURL(f); }
 });
-
 document.getElementById('upload-prompt').addEventListener('click', e => {
-  if (e.target.tagName !== 'BUTTON') fileInput.click();
+  if (e.target.tagName !== 'BUTTON') document.getElementById('file-input').click();
 });
-
-function clampByte(v) {
-  return v < 0 ? 0 : v > 255 ? 255 : v;
-}
-
-function smoothstep(a, b, x) {
-  const t = Math.max(0, Math.min(1, (x - a) / (b - a || 1)));
-  return t * t * (3 - 2 * t);
-}
 
 function loadImage(src) {
   const img = new Image();
@@ -276,14 +250,11 @@ function loadImage(src) {
     if (w > MAX_W) { h = Math.round(h * MAX_W / w); w = MAX_W; }
     if (h > MAX_H) { w = Math.round(w * MAX_H / h); h = MAX_H; }
 
-    ['canvas-orig', 'canvas-corr', 'canvas-single'].forEach(id => {
-      const c = document.getElementById(id);
-      c.width = w;
-      c.height = h;
+    ['canvas-orig','canvas-corr','canvas-single'].forEach(id => {
+      const c = document.getElementById(id); c.width = w; c.height = h;
     });
 
-    const ctx = document.getElementById('canvas-orig').getContext('2d', { willReadFrequently: true });
-    ctx.clearRect(0, 0, w, h);
+    const ctx = document.getElementById('canvas-orig').getContext('2d');
     ctx.drawImage(img, 0, 0, w, h);
     origData = ctx.getImageData(0, 0, w, h);
 
@@ -295,6 +266,16 @@ function loadImage(src) {
     recompute();
   };
   img.src = src;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ADAPTIVE FUSION PIPELINE (tuned for green water + blue haze)
+// ══════════════════════════════════════════════════════════════
+
+function detectWaterType(avgR, avgG, avgB) {
+  if (avgG > avgR * 1.55 && avgG >= avgB * 0.92) return 'green';
+  if (avgB > avgR * 1.45 && avgB >= avgG * 0.95) return 'blue';
+  return 'neutral';
 }
 
 function percentileBounds(hist, total, pct) {
@@ -318,7 +299,7 @@ function computeFilter(pixels, threshPct) {
     histR[r]++; histG[g]++; histB[b]++;
 
     const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (lum > 30 && lum < 220) {
+    if (lum > 24 && lum < 220) {
       midR += r; midG += g; midB += b; midCount++;
     }
   }
@@ -327,7 +308,7 @@ function computeFilter(pixels, threshPct) {
   const refR = midCount ? midR / midCount : avgR;
   const refG = midCount ? midG / midCount : avgG;
   const refB = midCount ? midB / midCount : avgB;
-  const target = (refR + refG + refB) / 3;
+  const waterType = detectWaterType(avgR, avgG, avgB);
 
   const [rLo, rHi] = percentileBounds(histR, n, threshPct);
   const [gLo, gHi] = percentileBounds(histG, n, threshPct);
@@ -337,20 +318,29 @@ function computeFilter(pixels, threshPct) {
   const stretchG = 255 / Math.max(1, gHi - gLo);
   const stretchB = 255 / Math.max(1, bHi - bLo);
 
-  const rawRedBoost = avgR < avgG && avgR < avgB ? (Math.min(avgG, avgB) - avgR) / Math.max(1, Math.min(avgG, avgB)) : 0;
-  const hueShift = Math.max(0, Math.min(0.32, rawRedBoost * 0.55));
+  const channelTarget = (refG + refB) * 0.5;
+  const redDeficit = Math.max(0, channelTarget - refR) / Math.max(1, channelTarget);
+  const hueCap = waterType === 'green' ? 0.16 : waterType === 'blue' ? 0.12 : 0.14;
+  const hueShift = Math.max(0, Math.min(hueCap, redDeficit * 0.22));
 
-  const gainR = Math.min(1.55, Math.max(0.85, target / Math.max(1, refR)));
-  const gainG = Math.min(1.30, Math.max(0.90, target / Math.max(1, refG)));
-  const gainB = Math.min(1.25, Math.max(0.85, target / Math.max(1, refB)));
+  const gainRMax = waterType === 'green' ? 1.42 : waterType === 'blue' ? 1.30 : 1.36;
+  const gainR = Math.min(gainRMax, Math.max(0.96, 1 + redDeficit * (waterType === 'green' ? 0.34 : 0.22)));
+  const gainG = waterType === 'green' ? 0.98 : 1.00;
+  const gainB = waterType === 'green' ? 1.02 : waterType === 'blue' ? 1.05 : 1.00;
+
+  const fusionBias = waterType === 'green' ? 0.66 : waterType === 'blue' ? 0.44 : 0.56;
+  const clarityBoost = waterType === 'green' ? 0.82 : waterType === 'blue' ? 1.24 : 1.00;
+  const redRecover = waterType === 'green' ? 0.34 : waterType === 'blue' ? 0.20 : 0.24;
+  const gammaBias = waterType === 'blue' ? 0.95 : waterType === 'green' ? 1.02 : 1.00;
 
   return {
     avgR: Math.round(avgR), avgG: Math.round(avgG), avgB: Math.round(avgB),
+    refR, refG, refB, waterType,
     rLo, rHi, gLo, gHi, bLo, bHi,
     hueShift,
     gainR, gainG, gainB,
     stretchR, stretchG, stretchB,
-    target
+    fusionBias, clarityBoost, redRecover, gammaBias
   };
 }
 
@@ -424,16 +414,17 @@ function applyGamma(v, gamma) {
 function createBaseChannels(srcData, denoiseAmount) {
   const src = srcData.data, w = srcData.width, h = srcData.height, n = w * h;
   const y = new Float32Array(n), cb = new Float32Array(n), cr = new Float32Array(n);
+
   for (let i = 0, p = 0; i < src.length; i += 4, p++) {
     const vals = rgbToYcbcr(src[i], src[i + 1], src[i + 2]);
     y[p] = vals[0]; cb[p] = vals[1]; cr[p] = vals[2];
   }
 
   if (denoiseAmount > 0) {
-    const radius = denoiseAmount > 22 ? 2 : 1;
+    const radius = denoiseAmount >= 16 ? 2 : 1;
     const blurCb = blurChannel(cb, w, h, radius);
     const blurCr = blurChannel(cr, w, h, radius);
-    const mix = Math.min(0.8, denoiseAmount / 40);
+    const mix = Math.min(0.75, denoiseAmount / 30);
     for (let p = 0; p < n; p++) {
       cb[p] = cb[p] * (1 - mix) + blurCb[p] * mix;
       cr[p] = cr[p] * (1 - mix) + blurCr[p] * mix;
@@ -451,29 +442,42 @@ function createBaseChannels(srcData, denoiseAmount) {
 function buildColorVersion(srcData, stats, strength, brightness, contrast, vibrance, gamma, base) {
   const w = srcData.width, h = srcData.height, src = srcData.data;
   const dst = new Uint8ClampedArray(src.length);
-  const contF = 1 + contrast / 100;
+  const contF = 1 + contrast / 160;
   const vibF = vibrance / 100;
-  const globalStrength = strength / 100;
+  const globalStrength = Math.min(1.12, Math.max(0, strength / 100));
 
   for (let i = 0; i < src.length; i += 4) {
-    const r0 = base[i], g0 = base[i + 1], b0 = base[i + 2];
     const origR = src[i], origG = src[i + 1], origB = src[i + 2];
+    let r1 = (base[i] - stats.rLo) * stats.stretchR;
+    let g1 = (base[i + 1] - stats.gLo) * stats.stretchG;
+    let b1 = (base[i + 2] - stats.bLo) * stats.stretchB;
+
     const lum0 = 0.299 * origR + 0.587 * origG + 0.114 * origB;
-    const toneMask = 1 - smoothstep(150, 245, lum0);
-    const localStrength = globalStrength * (0.30 + 0.70 * toneMask);
+    const toneMask = 1 - smoothstep(150, 240, lum0);
+    const localStrength = globalStrength * (0.18 + 0.62 * toneMask);
 
-    let r1 = ((r0 - stats.rLo) * stats.stretchR) * stats.gainR;
-    let g1 = ((g0 - stats.gLo) * stats.stretchG) * stats.gainG;
-    let b1 = ((b0 - stats.bLo) * stats.stretchB) * stats.gainB;
+    r1 = origR + (r1 * stats.gainR - origR) * localStrength;
+    g1 = origG + (g1 * stats.gainG - origG) * localStrength;
+    b1 = origB + (b1 * stats.gainB - origB) * localStrength;
 
-    const safeRed = origR + (Math.max(origG, origB) - origR) * stats.hueShift;
-    r1 = Math.min(r1, safeRed * 1.08 + 10);
+    const donor = Math.min(origG, origB * 1.04);
+    const safeRed = Math.min(origR + 52, origR + Math.max(0, donor - origR) * stats.redRecover);
+    r1 = Math.min(r1, safeRed);
 
-    r1 = origR + (r1 - origR) * localStrength;
-    g1 = origG + (g1 - origG) * localStrength;
-    b1 = origB + (b1 - origB) * localStrength;
+    if (stats.waterType === 'green') {
+      const greenExcess = Math.max(0, g1 - (r1 + b1) * 0.52);
+      g1 -= greenExcess * 0.18;
+      b1 += greenExcess * 0.05;
+    } else if (stats.waterType === 'blue') {
+      const blueExcess = Math.max(0, b1 - (r1 + g1) * 0.58);
+      b1 -= blueExcess * 0.10;
+      r1 += blueExcess * 0.03;
+    }
 
-    r1 += brightness; g1 += brightness; b1 += brightness;
+    r1 += brightness;
+    g1 += brightness;
+    b1 += brightness;
+
     r1 = (r1 - 128) * contF + 128;
     g1 = (g1 - 128) * contF + 128;
     b1 = (b1 - 128) * contF + 128;
@@ -481,73 +485,80 @@ function buildColorVersion(srcData, stats, strength, brightness, contrast, vibra
     const lum = 0.299 * r1 + 0.587 * g1 + 0.114 * b1;
     const maxC = Math.max(r1, g1, b1), minC = Math.min(r1, g1, b1);
     const sat = (maxC - minC) / Math.max(1, maxC);
-    const vAmt = vibF * Math.max(0, 1 - sat);
+    const vAmt = vibF * Math.max(0, 1 - sat) * (stats.waterType === 'green' ? 0.75 : 0.9);
     r1 += (r1 - lum) * vAmt;
     g1 += (g1 - lum) * vAmt;
     b1 += (b1 - lum) * vAmt;
 
-    r1 = applyGamma(r1, gamma);
-    g1 = applyGamma(g1, gamma);
-    b1 = applyGamma(b1, gamma);
-
-    dst[i] = clampByte(softHighlight(r1));
-    dst[i + 1] = clampByte(softHighlight(g1));
-    dst[i + 2] = clampByte(softHighlight(b1));
+    dst[i] = clampByte(softHighlight(applyGamma(r1, gamma)));
+    dst[i + 1] = clampByte(softHighlight(applyGamma(g1, gamma)));
+    dst[i + 2] = clampByte(softHighlight(applyGamma(b1, gamma)));
     dst[i + 3] = src[i + 3];
   }
+
   return new ImageData(dst, w, h);
 }
 
-function buildContrastVersion(srcData, brightness, contrast, gamma, base) {
-  const w = srcData.width, h = srcData.height, src = srcData.data;
-  const n = w * h;
+function buildContrastVersion(srcData, stats, brightness, contrast, gamma, base) {
+  const w = srcData.width, h = srcData.height, src = srcData.data, n = w * h;
   const lum = new Float32Array(n);
+
   for (let p = 0, i = 0; p < n; p++, i += 4) {
     lum[p] = 0.299 * base[i] + 0.587 * base[i + 1] + 0.114 * base[i + 2];
   }
-  const localMean = blurGray(lum, w, h, 6);
-  const clarityStrength = Math.max(0.35, 0.65 + contrast / 160);
+
+  const radius = stats.waterType === 'blue' ? 8 : 6;
+  const localMean = blurGray(lum, w, h, radius);
+  const localWide = blurGray(lum, w, h, radius + 4);
+  const clarityStrength = Math.max(0.28, (0.48 + contrast / 180) * stats.clarityBoost);
   const out = new Uint8ClampedArray(src.length);
 
   for (let p = 0, i = 0; p < n; p++, i += 4) {
     const detail = lum[p] - localMean[p];
-    let r = base[i] + detail * clarityStrength + brightness * 0.35;
-    let g = base[i + 1] + detail * clarityStrength + brightness * 0.35;
-    let b = base[i + 2] + detail * clarityStrength + brightness * 0.35;
+    const haze = localMean[p] - localWide[p];
+    let lift = detail * clarityStrength - haze * 0.22 * stats.clarityBoost;
+    if (stats.waterType === 'green') lift *= 0.78;
 
-    r = (r - 128) * (1 + contrast / 180) + 128;
-    g = (g - 128) * (1 + contrast / 180) + 128;
-    b = (b - 128) * (1 + contrast / 180) + 128;
+    let r = base[i] + lift + brightness * 0.30;
+    let g = base[i + 1] + lift + brightness * 0.30;
+    let b = base[i + 2] + lift + brightness * 0.30;
 
-    r = applyGamma(r, gamma);
-    g = applyGamma(g, gamma);
-    b = applyGamma(b, gamma);
+    const cont = 1 + contrast / 210;
+    r = (r - 128) * cont + 128;
+    g = (g - 128) * cont + 128;
+    b = (b - 128) * cont + 128;
 
-    out[i] = clampByte(softHighlight(r));
-    out[i + 1] = clampByte(softHighlight(g));
-    out[i + 2] = clampByte(softHighlight(b));
+    out[i] = clampByte(softHighlight(applyGamma(r, gamma)));
+    out[i + 1] = clampByte(softHighlight(applyGamma(g, gamma)));
+    out[i + 2] = clampByte(softHighlight(applyGamma(b, gamma)));
     out[i + 3] = src[i + 3];
   }
 
   return new ImageData(out, w, h);
 }
 
-function fuseImages(colorData, contrastData, strength) {
+function fuseImages(colorData, contrastData, stats, strength) {
   const a = colorData.data, b = contrastData.data;
   const out = new Uint8ClampedArray(a.length);
-  const favorColor = Math.max(0.52, Math.min(0.82, 0.58 + strength / 500));
+  const baseColor = Math.max(0.38, Math.min(0.76, stats.fusionBias + (strength - 100) / 500));
 
   for (let i = 0; i < a.length; i += 4) {
     const satA = Math.max(a[i], a[i + 1], a[i + 2]) - Math.min(a[i], a[i + 1], a[i + 2]);
     const satB = Math.max(b[i], b[i + 1], b[i + 2]) - Math.min(b[i], b[i + 1], b[i + 2]);
-    const wA = favorColor * (satA + 12);
-    const wB = (1 - favorColor) * (satB + 12);
+    const lumA = 0.299 * a[i] + 0.587 * a[i + 1] + 0.114 * a[i + 2];
+    const lumB = 0.299 * b[i] + 0.587 * b[i + 1] + 0.114 * b[i + 2];
+    const contrastBias = Math.max(0, lumB - lumA) * 0.015;
+
+    const wA = baseColor * (14 + satA);
+    const wB = (1 - baseColor + contrastBias) * (18 + satB);
     const norm = wA + wB;
+
     out[i] = clampByte((a[i] * wA + b[i] * wB) / norm);
     out[i + 1] = clampByte((a[i + 1] * wA + b[i + 1] * wB) / norm);
     out[i + 2] = clampByte((a[i + 2] * wA + b[i + 2] * wB) / norm);
     out[i + 3] = a[i + 3];
   }
+
   return new ImageData(out, colorData.width, colorData.height);
 }
 
@@ -571,6 +582,7 @@ function sharpenLuma(imgData, amount) {
     out[i + 2] = clampByte(src[i + 2] + boost);
     out[i + 3] = src[i + 3];
   }
+
   return new ImageData(out, w, h);
 }
 
@@ -581,18 +593,17 @@ function recompute() {
   filterStats = stats;
 
   document.getElementById('depth-val').textContent = stats.avgR;
-  ['r', 'g', 'b'].forEach(c => {
+  ['r','g','b'].forEach(c => {
     const avg = stats['avg' + c.toUpperCase()];
     document.getElementById('bar-' + c).style.width = (avg / 255 * 100) + '%';
     document.getElementById('num-' + c).textContent = avg;
   });
 
-  const isGreen = stats.avgG > stats.avgR * 1.08 && stats.avgG > stats.avgB;
-  const castLabel = stats.avgR >= 72 ? '✅ balanced' : isGreen ? '🟢 green cast' : '🔵 blue cast';
+  const castLabel = stats.waterType === 'green' ? '🟢 green water' : stats.waterType === 'blue' ? '🔵 blue haze' : '⚪ neutral';
   document.getElementById('analysis-pills').innerHTML = `
-    <span class="pill pill-n">fusion pipeline</span>
+    <span class="pill pill-n">adaptive fusion</span>
     <span class="pill pill-n">${castLabel}</span>
-    <span class="pill pill-n">hue shift: ${stats.hueShift.toFixed(3)}</span>
+    <span class="pill pill-n">red cap: ${stats.redRecover.toFixed(2)}</span>
     <span class="pill pill-r">R lo:${stats.rLo} hi:${stats.rHi}</span>
     <span class="pill pill-g">G lo:${stats.gLo} hi:${stats.gHi}</span>
     <span class="pill pill-b">B lo:${stats.bLo} hi:${stats.bHi}</span>
@@ -612,20 +623,23 @@ function applyFilter() {
   const brightness = parseInt(document.getElementById('sl-bri').value, 10);
   const contrast = parseInt(document.getElementById('sl-con').value, 10);
   const vibrance = parseInt(document.getElementById('sl-sat').value, 10);
-  const gamma = contrast >= 0 ? Math.max(0.78, 1 - contrast / 280) : Math.min(1.24, 1 - contrast / 420);
-  const denoiseAmount = filterStats.hueShift > 0.18 ? 18 : 10;
 
+  let gamma = (contrast >= 0 ? Math.max(0.84, 1 - contrast / 340) : Math.min(1.18, 1 - contrast / 520)) * filterStats.gammaBias;
+  gamma = Math.max(0.86, Math.min(1.16, gamma));
+
+  const denoiseAmount = filterStats.waterType === 'green' ? 18 : filterStats.waterType === 'blue' ? 12 : 10;
   const base = createBaseChannels(origData, denoiseAmount);
   const colorVersion = buildColorVersion(origData, filterStats, strength, brightness, contrast, vibrance, gamma, base);
-  const contrastVersion = buildContrastVersion(origData, brightness, contrast, gamma, base);
-  let out = fuseImages(colorVersion, contrastVersion, strength);
-  if (sharpen > 0) out = sharpenLuma(out, sharpen);
+  const contrastVersion = buildContrastVersion(origData, filterStats, brightness, contrast, gamma, base);
+
+  let out = fuseImages(colorVersion, contrastVersion, filterStats, strength);
+  const sharpenAmt = filterStats.waterType === 'blue' ? Math.min(sharpen, 10) : filterStats.waterType === 'green' ? Math.min(sharpen, 8) : sharpen;
+  if (sharpenAmt > 0) out = sharpenLuma(out, sharpenAmt);
 
   document.getElementById('canvas-corr').getContext('2d').putImageData(out, 0, 0);
   drawHistogram(out.data);
   refreshView();
 }
-
 document.querySelectorAll('.view-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
@@ -637,46 +651,29 @@ document.querySelectorAll('.view-btn').forEach(btn => {
 
 function refreshView() {
   if (!origData) return;
-  const split = document.getElementById('split-view');
-  const single = document.getElementById('single-view');
-  if (currentView === 'split') {
-    split.classList.add('active');
-    single.classList.remove('active');
-    return;
+  const sp = document.getElementById('split-view'), sg = document.getElementById('single-view');
+  if (currentView === 'split') { sp.classList.add('active'); sg.classList.remove('active'); } 
+  else {
+    sp.classList.remove('active'); sg.classList.add('active');
+    const sc = document.getElementById('canvas-single');
+    sc.width = origData.width; sc.height = origData.height;
+    const ctx = sc.getContext('2d');
+    if (currentView === 'original') ctx.putImageData(origData, 0, 0);
+    else ctx.drawImage(document.getElementById('canvas-corr'), 0, 0);
   }
-  split.classList.remove('active');
-  single.classList.add('active');
-  const sc = document.getElementById('canvas-single');
-  sc.width = origData.width;
-  sc.height = origData.height;
-  const ctx = sc.getContext('2d');
-  if (currentView === 'original') ctx.putImageData(origData, 0, 0);
-  else ctx.drawImage(document.getElementById('canvas-corr'), 0, 0);
 }
 
 function drawHistogram(data) {
   const canvas = document.getElementById('histogram-canvas');
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-  const ctx = canvas.getContext('2d');
-  const bR = new Uint32Array(256), bG = new Uint32Array(256), bB = new Uint32Array(256);
-  for (let i = 0; i < data.length; i += 4) {
-    bR[data[i]]++;
-    bG[data[i + 1]]++;
-    bB[data[i + 2]]++;
-  }
+  canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
+  const ctx = canvas.getContext('2d'), bR = new Uint32Array(256), bG = new Uint32Array(256), bB = new Uint32Array(256);
+  for (let i = 0; i < data.length; i += 4) { bR[data[i]]++; bG[data[i+1]]++; bB[data[i+2]]++; }
   const mx = Math.max(...bR, ...bG, ...bB) || 1;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
   [['#e0505055', bR], ['#50cc6055', bG], ['#4080e055', bB]].forEach(([col, bins]) => {
-    ctx.beginPath();
-    ctx.moveTo(0, canvas.height);
-    for (let x = 0; x < 256; x++) {
-      ctx.lineTo(x / 255 * canvas.width, canvas.height - bins[x] / mx * (canvas.height - 3));
-    }
-    ctx.lineTo(canvas.width, canvas.height);
-    ctx.closePath();
-    ctx.fillStyle = col;
-    ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0, canvas.height);
+    for (let x = 0; x < 256; x++) ctx.lineTo(x/255*canvas.width, canvas.height - bins[x]/mx*(canvas.height-3));
+    ctx.lineTo(canvas.width, canvas.height); ctx.closePath();
+    ctx.fillStyle = col; ctx.fill();
   });
 }
 
@@ -695,12 +692,8 @@ function onSlider(el, valId, suffix, scale) {
 document.querySelectorAll('input[type=range]').forEach(el => onSlider(el, null));
 
 function resetSliders() {
-  const defs = { 'sl-str': 100, 'sl-shp': 0, 'sl-bri': 0, 'sl-con': 0, 'sl-sat': 0, 'sl-thr': 5 };
-  Object.entries(defs).forEach(([id, v]) => {
-    const el = document.getElementById(id);
-    el.value = v;
-    onSlider(el, null);
-  });
+  const defs = {'sl-str':100,'sl-shp':0,'sl-bri':0,'sl-con':0,'sl-sat':0,'sl-thr':5};
+  Object.entries(defs).forEach(([id,v]) => { const el=document.getElementById(id); el.value=v; onSlider(el,null); });
   document.getElementById('val-str').textContent = '100%';
   document.getElementById('val-shp').textContent = '+0';
   document.getElementById('val-bri').textContent = '+0';
