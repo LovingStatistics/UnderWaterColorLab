@@ -167,6 +167,10 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
             <span class="algo-btn-title">🔬 AkeelMedina22</span>
             <span class="algo-btn-sub">CLAHE on L + Gray-World Lab a/b correction</span>
           </button>
+          <button class="algo-btn" id="algo-pranjali" onclick="switchAlgo('pranjali')">
+            <span class="algo-btn-title">🧬 pranjalibajpai</span>
+            <span class="algo-btn-sub">RB compensation → Gray World → Sharpen+HE → PCA fusion</span>
+          </button>
         </div>
       </div>
 
@@ -244,6 +248,50 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
         <div class="algo-row"><span>b channel mean</span><span class="algo-val" id="ak-bmean">—</span></div>
         <div class="algo-row"><span>CLAHE clip</span><span class="algo-val" id="ak-clip">—</span></div>
         <div class="algo-row"><span>Chroma strength</span><span class="algo-val" id="ak-chroma">—</span></div>
+      </div>
+
+
+      <!-- pranjalibajpai controls (hidden by default) -->
+      <div class="panel-section" id="pranjali-sliders" style="display:none">
+        <div class="section-label">Pranjali Controls</div>
+        <div class="slider-group">
+          <div class="slider-row">
+            <div class="slider-header">
+              <span class="slider-name">Image type</span>
+              <span class="slider-val" id="val-imgtype" style="font-size:10px">blue</span>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:4px">
+              <button class="view-btn active" id="type-blue" onclick="setPranjaliType(0)" style="font-size:11px;flex:1">🔵 Bluish</button>
+              <button class="view-btn" id="type-green" onclick="setPranjaliType(1)" style="font-size:11px;flex:1">🟢 Greenish</button>
+            </div>
+          </div>
+          <div class="slider-row">
+            <div class="slider-header">
+              <span class="slider-name">Fusion method</span>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:4px">
+              <button class="view-btn active" id="fuse-pca" onclick="setPranjalieFusion('pca')" style="font-size:11px;flex:1">PCA</button>
+              <button class="view-btn" id="fuse-avg" onclick="setPranjalieFusion('avg')" style="font-size:11px;flex:1">Average</button>
+            </div>
+          </div>
+          <div class="slider-row">
+            <div class="slider-header">
+              <span class="slider-name">Sharpen strength (k)</span>
+              <span class="slider-val" id="val-sharp">1.0</span>
+            </div>
+            <input type="range" id="sl-sharp" min="5" max="30" value="10" oninput="onSlider(this,'val-sharp','',0.1); recomputePranjali()">
+          </div>
+        </div>
+      </div>
+
+      <!-- pranjalibajpai status -->
+      <div class="panel-section" id="pranjali-panel" style="display:none">
+        <div class="section-label">Pipeline Stats</div>
+        <div class="algo-row"><span>Type flag</span><span class="algo-val" id="pk-flag">—</span></div>
+        <div class="algo-row"><span>Fusion</span><span class="algo-val" id="pk-fusion">—</span></div>
+        <div class="algo-row"><span>R mean → WB scale</span><span class="algo-val" id="pk-rscale">—</span></div>
+        <div class="algo-row"><span>G mean → WB scale</span><span class="algo-val" id="pk-gscale">—</span></div>
+        <div class="algo-row"><span>B mean → WB scale</span><span class="algo-val" id="pk-bscale">—</span></div>
       </div>
 
       <!-- Actions -->
@@ -469,10 +517,8 @@ function applyMatrix(srcData, matrix, strength, brightness, contrast, satBoost) 
 function recompute() {
   if (!origData) return;
 
-  if (currentAlgo === 'akeel') {
-    recomputeAkeel();
-    return;
-  }
+  if (currentAlgo === 'akeel') { recomputeAkeel(); return; }
+  if (currentAlgo === 'pranjali') { recomputePranjali(); return; }
 
   const threshPct = parseFloat(document.getElementById('sl-thr').value) * 0.1;
   const res = computeFilter(origData.data, threshPct);
@@ -880,11 +926,332 @@ function switchAlgo(name) {
   if (akeelPanel) akeelPanel.style.display = name === 'akeel' ? 'block' : 'none';
   const akeelSliders = document.getElementById('akeel-sliders');
   if (akeelSliders) akeelSliders.style.display = name === 'akeel' ? 'block' : 'none';
+  // Show/hide pranjali panels
+  const pranjaliSliders = document.getElementById('pranjali-sliders');
+  if (pranjaliSliders) pranjaliSliders.style.display = name === 'pranjali' ? 'block' : 'none';
+  const pranjaliStatus = document.getElementById('pranjali-panel');
+  if (pranjaliStatus) pranjaliStatus.style.display = 'none'; // reset; recompute shows it
   // Hide nikolaj-only strength slider group
   const strRow = document.getElementById('str-row');
   if (strRow) strRow.style.display = name === 'nikolaj' ? 'flex' : 'none';
 
   recompute();
+}
+
+
+// ══════════════════════════════════════════════════════════════════
+//  PRANJALIBAJPAI ALGORITHM  (JS port of uie_web_app.py)
+//
+//  Step 1 – compensate_RB: boost R (and B for greenish) using G channel
+//     newR = (R + (meanG - meanR) * (1 - R) * G) * maxR   [normalised 0-1]
+//  Step 2 – gray_world: scale each channel so its mean = overall gray mean
+//     newC = C * (meanGray / meanC)
+//  Step 3 – sharpen via unsharp masking (k=1 by default):
+//     sharpened = 2*WB - GaussianBlur(WB)
+//  Step 4 – contrast_enhance: histogram-equalise the V channel in HSV
+//  Step 5 – fuse sharpened + contrast-enhanced image:
+//     PCA fusion: per-channel PCA gives optimal linear blend weights
+//     Average fusion: simple 50/50 pixel average
+// ══════════════════════════════════════════════════════════════════
+
+let pranjaliFlag    = 0;     // 0 = bluish (compensate R only compensate B too), 1 = greenish (R only)
+let pranjaliFusion  = 'pca'; // 'pca' | 'avg'
+
+function setPranjaliType(f) {
+  pranjaliFlag = f;
+  document.getElementById('type-blue').classList.toggle('active',  f === 0);
+  document.getElementById('type-green').classList.toggle('active', f === 1);
+  document.getElementById('val-imgtype').textContent = f === 0 ? 'blue' : 'green';
+  if (currentAlgo === 'pranjali') recomputePranjali();
+}
+function setPranjalieFusion(m) {
+  pranjaliFusion = m;
+  document.getElementById('fuse-pca').classList.toggle('active', m === 'pca');
+  document.getElementById('fuse-avg').classList.toggle('active', m === 'avg');
+  if (currentAlgo === 'pranjali') recomputePranjali();
+}
+
+// ── Step 1: R (and optionally B) channel compensation via Green channel ──
+function compensateRB(src, w, h, flag) {
+  const n = w * h;
+  // Find per-channel min/max and means (normalised)
+  let minR=255,maxR=0,minG=255,maxG=0,minB=255,maxB=0;
+  for (let i=0;i<src.length;i+=4) {
+    if(src[i]   < minR) minR=src[i];   if(src[i]   > maxR) maxR=src[i];
+    if(src[i+1] < minG) minG=src[i+1]; if(src[i+1] > maxG) maxG=src[i+1];
+    if(src[i+2] < minB) minB=src[i+2]; if(src[i+2] > maxB) maxB=src[i+2];
+  }
+  const rRange = maxR-minR || 1, gRange = maxG-minG || 1, bRange = maxB-minB || 1;
+
+  // Normalise to 0-1 and compute means
+  const normR = new Float32Array(n), normG = new Float32Array(n), normB = new Float32Array(n);
+  let mR=0,mG=0,mB=0;
+  for (let i=0;i<n;i++) {
+    normR[i]=(src[i*4]  -minR)/rRange;
+    normG[i]=(src[i*4+1]-minG)/gRange;
+    normB[i]=(src[i*4+2]-minB)/bRange;
+    mR+=normR[i]; mG+=normG[i]; mB+=normB[i];
+  }
+  mR/=n; mG/=n; mB/=n;
+
+  // Compensate and scale back
+  const out = new Uint8ClampedArray(src.length);
+  for (let i=0;i<n;i++) {
+    let r = normR[i] + (mG - mR) * (1 - normR[i]) * normG[i];
+    let b = normB[i];
+    if (flag === 0) b = normB[i] + (mG - mB) * (1 - normB[i]) * normG[i]; // also compensate B for bluish
+    out[i*4]   = Math.max(0,Math.min(255, Math.round(r * maxR)));
+    out[i*4+1] = Math.max(0,Math.min(255, Math.round(normG[i] * maxG)));
+    out[i*4+2] = Math.max(0,Math.min(255, Math.round(b * maxB)));
+    out[i*4+3] = src[i*4+3];
+  }
+  return out;
+}
+
+// ── Step 2: Gray World white balance ──
+function grayWorld(src, w, h) {
+  const n = w * h;
+  let mR=0, mG=0, mB=0, mGray=0;
+  for (let i=0;i<src.length;i+=4) {
+    mR+=src[i]; mG+=src[i+1]; mB+=src[i+2];
+    mGray += (src[i]*0.299 + src[i+1]*0.587 + src[i+2]*0.114);
+  }
+  mR/=n; mG/=n; mB/=n; mGray/=n;
+  const sR = mGray/(mR||1), sG = mGray/(mG||1), sB = mGray/(mB||1);
+
+  const out = new Uint8ClampedArray(src.length);
+  for (let i=0;i<src.length;i+=4) {
+    out[i]   = Math.max(0,Math.min(255,Math.round(src[i]   * sR)));
+    out[i+1] = Math.max(0,Math.min(255,Math.round(src[i+1] * sG)));
+    out[i+2] = Math.max(0,Math.min(255,Math.round(src[i+2] * sB)));
+    out[i+3] = src[i+3];
+  }
+  return { pixels: out, mR, mG, mB, mGray, sR, sG, sB };
+}
+
+// ── Step 3: Unsharp masking (sharpening) ──
+// sharpened = (1+k)*pixel - k*blurred  →  k=1 → 2*pixel - blurred
+function unsharpMask(src, w, h, k) {
+  // Gaussian box-blur approximation (3-pass box filter ~ Gaussian)
+  const blur = gaussianBoxBlur(src, w, h, 2);
+  const out = new Uint8ClampedArray(src.length);
+  const kp1 = 1 + k;
+  for (let i=0;i<src.length;i+=4) {
+    out[i]   = Math.max(0,Math.min(255,Math.round(kp1*src[i]   - k*blur[i])));
+    out[i+1] = Math.max(0,Math.min(255,Math.round(kp1*src[i+1] - k*blur[i+1])));
+    out[i+2] = Math.max(0,Math.min(255,Math.round(kp1*src[i+2] - k*blur[i+2])));
+    out[i+3] = src[i+3];
+  }
+  return out;
+}
+
+function gaussianBoxBlur(src, w, h, radius) {
+  // 3-pass box filter approximates Gaussian
+  let tmp = boxBlurPass(src, w, h, radius);
+  tmp = boxBlurPass(tmp, w, h, radius);
+  tmp = boxBlurPass(tmp, w, h, radius);
+  return tmp;
+}
+
+function boxBlurPass(src, w, h, r) {
+  const tmp = new Uint8ClampedArray(src.length);
+  // Horizontal
+  for (let y=0;y<h;y++) {
+    for (let x=0;x<w;x++) {
+      let sR=0,sG=0,sB=0,cnt=0;
+      for (let dx=-r;dx<=r;dx++) {
+        const nx=Math.max(0,Math.min(w-1,x+dx));
+        const ni=(y*w+nx)*4;
+        sR+=src[ni]; sG+=src[ni+1]; sB+=src[ni+2]; cnt++;
+      }
+      const oi=(y*w+x)*4;
+      tmp[oi]=sR/cnt; tmp[oi+1]=sG/cnt; tmp[oi+2]=sB/cnt; tmp[oi+3]=src[oi+3];
+    }
+  }
+  const out = new Uint8ClampedArray(src.length);
+  // Vertical
+  for (let x=0;x<w;x++) {
+    for (let y=0;y<h;y++) {
+      let sR=0,sG=0,sB=0,cnt=0;
+      for (let dy=-r;dy<=r;dy++) {
+        const ny=Math.max(0,Math.min(h-1,y+dy));
+        const ni=(ny*w+x)*4;
+        sR+=tmp[ni]; sG+=tmp[ni+1]; sB+=tmp[ni+2]; cnt++;
+      }
+      const oi=(y*w+x)*4;
+      out[oi]=sR/cnt; out[oi+1]=sG/cnt; out[oi+2]=sB/cnt; out[oi+3]=tmp[oi+3];
+    }
+  }
+  return out;
+}
+
+// ── Step 4: Contrast enhancement – histogram equalise V in HSV ──
+function hsvContrastEnhance(src, w, h) {
+  const n = w * h;
+  // RGB → HSV
+  const H = new Float32Array(n), S = new Float32Array(n), V = new Uint8Array(n);
+  for (let i=0;i<n;i++) {
+    const r=src[i*4]/255, g=src[i*4+1]/255, b=src[i*4+2]/255;
+    const mx=Math.max(r,g,b), mn=Math.min(r,g,b), d=mx-mn;
+    V[i] = Math.round(mx*255);
+    S[i] = mx===0 ? 0 : d/mx;
+    let h2=0;
+    if (d>0) {
+      if      (mx===r) h2 = ((g-b)/d + 6) % 6;
+      else if (mx===g) h2 = (b-r)/d + 2;
+      else             h2 = (r-g)/d + 4;
+      h2 /= 6;
+    }
+    H[i] = h2;
+  }
+  // Histogram equalise V channel
+  const hist = new Int32Array(256);
+  for (let i=0;i<n;i++) hist[V[i]]++;
+  const cdf = new Int32Array(256);
+  cdf[0] = hist[0];
+  for (let b=1;b<256;b++) cdf[b]=cdf[b-1]+hist[b];
+  const cdfMin = cdf.find(v=>v>0)||1;
+  const Veq = new Uint8Array(256);
+  for (let b=0;b<256;b++) Veq[b] = Math.round((cdf[b]-cdfMin)/(n-cdfMin)*255);
+
+  // HSV → RGB with equalised V
+  const out = new Uint8ClampedArray(src.length);
+  for (let i=0;i<n;i++) {
+    const h2=H[i]*6, s2=S[i], v2=Veq[V[i]]/255;
+    const f=h2-Math.floor(h2), p=v2*(1-s2), q=v2*(1-s2*f), t=v2*(1-s2*(1-f));
+    let r2,g2,b2;
+    switch(Math.floor(h2)%6) {
+      case 0: r2=v2;g2=t; b2=p; break;
+      case 1: r2=q; g2=v2;b2=p; break;
+      case 2: r2=p; g2=v2;b2=t; break;
+      case 3: r2=p; g2=q; b2=v2;break;
+      case 4: r2=t; g2=p; b2=v2;break;
+      default:r2=v2;g2=p; b2=q; break;
+    }
+    out[i*4]  =Math.max(0,Math.min(255,Math.round(r2*255)));
+    out[i*4+1]=Math.max(0,Math.min(255,Math.round(g2*255)));
+    out[i*4+2]=Math.max(0,Math.min(255,Math.round(b2*255)));
+    out[i*4+3]=src[i*4+3];
+  }
+  return out;
+}
+
+// ── Step 5a: Average fusion ──
+function averageFusion(a, b, len) {
+  const out = new Uint8ClampedArray(len);
+  for (let i=0;i<len;i+=4) {
+    out[i]  =Math.round((a[i]  +b[i]  )/2);
+    out[i+1]=Math.round((a[i+1]+b[i+1])/2);
+    out[i+2]=Math.round((a[i+2]+b[i+2])/2);
+    out[i+3]=a[i+3];
+  }
+  return out;
+}
+
+// ── Step 5b: PCA fusion ──
+// Per channel: form 2×N matrix of [img1_ch ; img2_ch], find covariance eigenvectors,
+// pick dominant eigenvector as blend weights w1,w2 where w1+w2=1
+function pcaFusion(a, b, len) {
+  const out = new Uint8ClampedArray(len);
+  // Process each channel independently
+  for (let ch=0;ch<3;ch++) {
+    const n = len/4;
+    // Extract channel columns
+    const v1 = new Float64Array(n), v2 = new Float64Array(n);
+    for (let i=0;i<n;i++) { v1[i]=a[i*4+ch]; v2[i]=b[i*4+ch]; }
+    const m1 = v1.reduce((s,x)=>s+x,0)/n;
+    const m2 = v2.reduce((s,x)=>s+x,0)/n;
+    // Covariance matrix (2×2)
+    let c11=0,c12=0,c22=0;
+    for (let i=0;i<n;i++) {
+      const d1=v1[i]-m1, d2=v2[i]-m2;
+      c11+=d1*d1; c12+=d1*d2; c22+=d2*d2;
+    }
+    c11/=n; c12/=n; c22/=n;
+    // Eigenvalues of 2×2: λ = ((c11+c22) ± sqrt((c11-c22)²+4*c12²)) / 2
+    const tr=c11+c22, det=c11*c22-c12*c12;
+    const disc=Math.sqrt(Math.max(0,(tr*tr)/4-det));
+    const λ1=(tr/2)+disc, λ2=(tr/2)-disc;
+    // Eigenvector for dominant eigenvalue
+    let e1,e2;
+    if (Math.abs(c12) > 1e-10) {
+      e1=λ1-c22; e2=c12;
+    } else {
+      e1=c11>=c22?1:0; e2=1-e1;
+    }
+    const eSum=e1+e2 || 1;
+    const w1=e1/eSum, w2=e2/eSum;
+    // Blend
+    for (let i=0;i<n;i++) {
+      out[i*4+ch] = Math.max(0,Math.min(255,Math.round(w1*a[i*4+ch]+w2*b[i*4+ch])));
+    }
+    // alpha
+    if (ch===0) for(let i=0;i<n;i++) out[i*4+3]=a[i*4+3];
+  }
+  return out;
+}
+
+// ── Full pranjalibajpai pipeline ──
+function applyPranjaliAlgo(srcData, flag, fusion, sharpK) {
+  const src = srcData.data, w = srcData.width, h = srcData.height;
+
+  // Step 1: compensate R/B
+  const comp = compensateRB(src, w, h, flag);
+
+  // Step 2: gray world white balance
+  const wb = grayWorld(comp, w, h);
+
+  // Step 3: sharpen white-balanced image
+  const sharpened = unsharpMask(wb.pixels, w, h, sharpK);
+
+  // Step 4: contrast-enhance white-balanced image (HSV V equalisation)
+  const contrastEnhanced = hsvContrastEnhance(wb.pixels, w, h);
+
+  // Step 5: fuse
+  let fused;
+  if (fusion === 'pca') {
+    fused = pcaFusion(sharpened, contrastEnhanced, src.length);
+  } else {
+    fused = averageFusion(sharpened, contrastEnhanced, src.length);
+  }
+
+  return { pixels: fused, sR: wb.sR, sG: wb.sG, sB: wb.sB };
+}
+
+// ── Recompute for pranjali mode ──
+function recomputePranjali() {
+  if (!origData) return;
+  const sharpK = parseFloat(document.getElementById('sl-sharp').value) * 0.1;
+  const result = applyPranjaliAlgo(origData, pranjaliFlag, pranjaliFusion, sharpK);
+  const corrected = new ImageData(result.pixels, origData.width, origData.height);
+
+  document.getElementById('canvas-corr').getContext('2d').putImageData(corrected, 0, 0);
+  drawHistogram(corrected.data);
+  refreshView();
+
+  // Channel bars (from original)
+  const src = origData.data, n = src.length/4;
+  let rS=0,gS=0,bS=0;
+  for(let i=0;i<src.length;i+=4){rS+=src[i];gS+=src[i+1];bS+=src[i+2];}
+  ['r','g','b'].forEach((c,ci)=>{
+    const avg=Math.round([rS,gS,bS][ci]/n);
+    document.getElementById('bar-'+c).style.width=(avg/255*100)+'%';
+    document.getElementById('num-'+c).textContent=avg;
+    if(ci===0) document.getElementById('depth-val').textContent=avg;
+  });
+
+  // Status
+  const pills = document.getElementById('analysis-pills');
+  pills.innerHTML = `
+    <span class="pill pill-n">flag: ${pranjaliFlag===0?'bluish':'greenish'}</span>
+    <span class="pill pill-n">fusion: ${pranjaliFusion.toUpperCase()}</span>
+  `;
+  document.getElementById('pk-flag').textContent    = pranjaliFlag===0 ? 'Bluish (R+B comp)' : 'Greenish (R only)';
+  document.getElementById('pk-fusion').textContent  = pranjaliFusion.toUpperCase();
+  document.getElementById('pk-rscale').textContent  = result.sR.toFixed(3);
+  document.getElementById('pk-gscale').textContent  = result.sG.toFixed(3);
+  document.getElementById('pk-bscale').textContent  = result.sB.toFixed(3);
+  document.getElementById('pranjali-panel').style.display = 'block';
 }
 
 // ── download ──
