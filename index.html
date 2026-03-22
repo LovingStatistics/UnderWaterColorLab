@@ -206,7 +206,14 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
       </div>
 
       <div class="download-bar">
-        <button class="btn-primary" id="btn-dl" onclick="downloadResult()" disabled>⬇ Export corrected image</button>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none;">
+            <input type="checkbox" id="chk-upscale" style="accent-color:#00c8ff;cursor:pointer;">
+            <span>AI Upscale 2× on export</span>
+          </label>
+          <div id="export-status" style="min-height:16px;font-family:'DM Mono',monospace;font-size:10px;color:var(--accent);letter-spacing:.04em;"></div>
+          <button class="btn-primary" id="btn-dl" onclick="downloadResult()" disabled>⬇ Export corrected image</button>
+        </div>
       </div>
     </div>
   </main>
@@ -218,7 +225,9 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
 // ── state ──
 let origData = null;
 let filterMatrix = null;
+let filterStats = null;
 let currentView = 'split';
+let upscalerLibPromise = null;
 
 // ── file I/O ──
 document.getElementById('file-input').addEventListener('change', e => {
@@ -271,6 +280,62 @@ function loadImage(src) {
 // ══════════════════════════════════════════════════════════════
 //  ADAPTIVE FUSION PIPELINE (tuned for green water + blue haze)
 // ══════════════════════════════════════════════════════════════
+
+function setExportStatus(msg, isError = false) {
+  const el = document.getElementById('export-status');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.style.color = isError ? '#ff9a9a' : 'var(--accent)';
+}
+
+function loadUpscalerLibrary() {
+  if (window.Upscaler) return Promise.resolve(window.Upscaler);
+  if (upscalerLibPromise) return upscalerLibPromise;
+
+  upscalerLibPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/upscaler/dist/browser/umd/upscaler.min.js';
+    script.async = true;
+    script.dataset.upscalerjs = 'true';
+    script.onload = () => window.Upscaler ? resolve(window.Upscaler) : reject(new Error('UpscalerJS loaded but unavailable.'));
+    script.onerror = () => reject(new Error('Failed to load UpscalerJS.'));
+    document.head.appendChild(script);
+  });
+
+  return upscalerLibPromise;
+}
+
+function canvasFromSource(source, fallbackWidth, fallbackHeight) {
+  if (source instanceof HTMLCanvasElement) return source;
+  const width = source?.width || fallbackWidth;
+  const height = source?.height || fallbackHeight;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (source instanceof ImageData) {
+    ctx.putImageData(source, 0, 0);
+  } else if (source) {
+    ctx.drawImage(source, 0, 0, width, height);
+  }
+  return canvas;
+}
+
+async function upscaleExportCanvas(inputCanvas) {
+  const UpscalerCtor = await loadUpscalerLibrary();
+  const upscaler = new UpscalerCtor();
+  const result = await upscaler.upscale(inputCanvas, {
+    output: 'canvas',
+    patchSize: 128,
+    padding: 2,
+    progress: (pct) => {
+      const normalized = typeof pct === 'number' ? pct : (pct && typeof pct.percent === 'number' ? pct.percent : 0);
+      const value = Math.round(Math.max(0, Math.min(1, normalized)) * 100);
+      setExportStatus(`AI upscale ${value}%`);
+    }
+  });
+  return canvasFromSource(result, inputCanvas.width * 2, inputCanvas.height * 2);
+}
 
 function detectWaterType(avgR, avgG, avgB) {
   if (avgG > avgR * 1.55 && avgG >= avgB * 0.92) return 'green';
@@ -703,11 +768,39 @@ function resetSliders() {
   recompute();
 }
 
-function downloadResult() {
-  const link = document.createElement('a');
-  link.download = 'subsurface-enhanced.png';
-  link.href = document.getElementById('canvas-corr').toDataURL('image/png');
-  link.click();
+async function downloadResult() {
+  const btn = document.getElementById('btn-dl');
+  const useUpscale = document.getElementById('chk-upscale').checked;
+  const corrCanvas = document.getElementById('canvas-corr');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+
+  try {
+    let exportCanvas = corrCanvas;
+    if (useUpscale) {
+      setExportStatus('Loading AI upscaler…');
+      btn.textContent = '⏳ Preparing AI upscale…';
+      exportCanvas = await upscaleExportCanvas(corrCanvas);
+      setExportStatus('AI upscale complete');
+    } else {
+      setExportStatus('');
+    }
+
+    const link = document.createElement('a');
+    link.download = useUpscale ? 'subsurface-enhanced-2x.png' : 'subsurface-enhanced.png';
+    link.href = exportCanvas.toDataURL('image/png');
+    link.click();
+  } catch (err) {
+    console.error(err);
+    setExportStatus('AI upscale unavailable — exported standard image instead.', true);
+    const link = document.createElement('a');
+    link.download = 'subsurface-enhanced.png';
+    link.href = corrCanvas.toDataURL('image/png');
+    link.click();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 </script>
 </body>
