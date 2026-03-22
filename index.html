@@ -170,8 +170,12 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
     <div class="slabel">Fusion Controls</div>
     <div class="slider-group">
       <div class="sl-row">
-        <div class="sl-hdr"><span class="sl-name">CLAHE detail clip</span><span class="sl-val" id="v-clp">3.0</span></div>
-        <input type="range" id="sl-clp" min="10" max="80" value="30" oninput="slUpdate(this,'v-clp','',0.1);reprocess()">
+        <div class="sl-hdr"><span class="sl-name">CLAHE detail clip</span><span class="sl-val" id="v-clp">2.0</span></div>
+        <input type="range" id="sl-clp" min="5" max="60" value="20" oninput="slUpdate(this,'v-clp','',0.1);reprocess()">
+      </div>
+      <div class="sl-row">
+        <div class="sl-hdr"><span class="sl-name">Gray-world balance</span><span class="sl-val" id="v-gws">40%</span></div>
+        <input type="range" id="sl-gws" min="0" max="100" value="40" oninput="slUpdate(this,'v-gws','%');reprocess()">
       </div>
       <div class="sl-row">
         <div class="sl-hdr"><span class="sl-name">Retinex mix</span><span class="sl-val" id="v-rmix">25%</span></div>
@@ -405,13 +409,21 @@ function lab2rgb(L,a,b) {
 // This neutralises the global color cast before Nikolajbech runs,
 // so the hue-shift has less work and overshoots less.
 // ─────────────────────────────────────────────────────────
-function grayWorldBalance(data) {
+function grayWorldBalance(data, strength) {
+  // strength 0-1: how aggressively to correct. Capped to avoid over-boosting.
   const n = data.length/4;
   let rS=0,gS=0,bS=0;
   for (let i=0;i<data.length;i+=4) { rS+=data[i];gS+=data[i+1];bS+=data[i+2]; }
   const mR=rS/n, mG=gS/n, mB=bS/n;
   const mGray=(mR+mG+mB)/3;
-  const sR=mGray/(mR||1), sG=mGray/(mG||1), sB=mGray/(mB||1);
+  // Cap: never boost a channel more than 1.4x or cut below 0.7x
+  // Prevents turning silver fish green when reds are already present
+  const capHi=1.4, capLo=0.7;
+  const sRf=Math.max(capLo,Math.min(capHi,mGray/(mR||1)));
+  const sGf=Math.max(capLo,Math.min(capHi,mGray/(mG||1)));
+  const sBf=Math.max(capLo,Math.min(capHi,mGray/(mB||1)));
+  // Blend toward full correction by strength (allows partial application)
+  const sR=1+(sRf-1)*strength, sG=1+(sGf-1)*strength, sB=1+(sBf-1)*strength;
   const out = new Uint8ClampedArray(data.length);
   for (let i=0;i<data.length;i+=4) {
     out[i]  =cl(data[i]  *sR);
@@ -439,7 +451,16 @@ function algoNikolaj(data, threshPct, redTarget) {
   const RT = redTarget > 0 ? redTarget : computeDepthTarget(avgR, avgG, avgB);
 
   let hs=0;
-  if (avgR < RT) { const blend=(avgG+avgB)/2; hs=blend>0?Math.min(1,(RT-avgR)/blend):0; }
+  // Only shift when there is a meaningful deficit (>8% relative to dominant channel)
+  // This prevents over-correction on images that already have decent reds
+  const dominant=Math.max(avgG,avgB);
+  const relDeficit=dominant>0?(dominant-avgR)/dominant:0;
+  if (avgR < RT && relDeficit > 0.08) {
+    const blend=(avgG+avgB)/2;
+    // Also scale down the shift proportionally so near-neutral images get a gentler push
+    const shiftScale=Math.min(1, relDeficit*2); // soft onset
+    hs=blend>0?Math.min(1,(RT-avgR)/blend)*shiftScale:0;
+  }
   const hs2=hs/2;
 
   const hR=new Int32Array(256), hG=new Int32Array(256), hB=new Int32Array(256);
@@ -566,11 +587,11 @@ function algoMSR(data, w, h, strength, colorRestore) {
 // Color (H+S) always from Nikolajbech.
 // Luminance (L) from CLAHE (detail) + MSR (local illumination).
 // ─────────────────────────────────────────────────────────
-function algoAutoFusion(data, w, h, claheClip, retinexMix, redTarget) {
+function algoAutoFusion(data, w, h, claheClip, retinexMix, redTarget, gwStrength) {
   const n=w*h;
 
-  // Enhancement 1: gray-world pre-balance before Nikolajbech
-  const gw = grayWorldBalance(data);
+  // Enhancement 1: gray-world pre-balance (capped, partial strength)
+  const gw = grayWorldBalance(data, gwStrength);
 
   // Enhancement 2: depth-adaptive Nikolajbech on balanced image
   const nik = algoNikolaj(gw.pixels, 0.5, redTarget);
@@ -590,10 +611,12 @@ function algoAutoFusion(data, w, h, claheClip, retinexMix, redTarget) {
     const claLv = claL[i]/255;
     const [,,msrLv]=rgb2hsl(msr.pixels[idx],msr.pixels[idx+1],msr.pixels[idx+2]);
 
-    // Luminance: CLAHE provides the primary detail source,
-    // Nikolajbech's L anchors the brightness,
-    // Retinex blends in shadow/highlight recovery
-    const baseL = claLv*0.65 + nikL*0.35;
+    // Original pixel L — used to temper CLAHE and prevent flattening
+    const [,,origL]=rgb2hsl(data[idx],data[idx+1],data[idx+2]);
+    // Luminance: blend CLAHE detail with original L to prevent over-flattening,
+    // then anchor 30% to Nikolajbech brightness, then blend in Retinex
+    const claMix = claLv*0.5 + origL*0.5; // CLAHE softened with original
+    const baseL  = claMix*0.65 + nikL*0.35;
     const finalL = Math.max(0,Math.min(1, baseL*(1-rw)+msrLv*rw));
 
     const [r,g,b]=hsl2rgb(nikH, nikS, finalL);
@@ -739,7 +762,8 @@ function _reprocess() {
   if (currentAlgo==='auto') {
     const clp  = parseFloat(document.getElementById('sl-clp').value)*0.1;
     const rmix = parseFloat(document.getElementById('sl-rmix').value);
-    result = algoAutoFusion(data, w, h, clp, rmix, depthTarget);
+    const gws = parseFloat(document.getElementById('sl-gws').value)/100;
+    result = algoAutoFusion(data, w, h, clp, rmix, depthTarget, gws);
   } else if (currentAlgo==='nikolaj') {
     const thr = parseFloat(document.getElementById('sl-thr').value)*0.1;
     result = algoNikolaj(data, thr, depthTarget);
@@ -787,9 +811,9 @@ async function runUpscale() {
     upscalerLoading = true;
     statusEl.textContent = 'Loading TensorFlow.js + UpscalerJS (~5 MB)…';
     try {
-      await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js');
-      await loadScript('https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@1.0.0-beta.18/dist/umd/index.min.js');
-      await loadScript('https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.18/dist/browser/umd/upscaler.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@latest/dist/umd/index.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/upscaler@latest/dist/browser/umd/upscaler.min.js');
       upscalerReady = true;
       upscalerLoading = false;
       statusEl.textContent = 'UpscalerJS loaded. Starting 2× upscale…';
@@ -947,13 +971,13 @@ document.getElementById('v-depth').textContent='auto';
 document.getElementById('sl-depth').value=0;
 
 function resetSliders() {
-  const defs={'sl-clp':30,'sl-rmix':25,'sl-thr':5,'sl-msrs':80,'sl-crf':125,
+  const defs={'sl-clp':20,'sl-gws':40,'sl-rmix':25,'sl-thr':5,'sl-msrs':80,'sl-crf':125,
     'sl-str':100,'sl-exp':0,'sl-con':0,'sl-sat':0,'sl-shp':0,'sl-den':0,'sl-gam':100};
   Object.entries(defs).forEach(([id,v])=>{ const el=document.getElementById(id); if(el){el.value=v;slUpdate(el,null);} });
   depthTarget=0;
   document.getElementById('sl-depth').value=0;
   document.getElementById('v-depth').textContent='auto';
-  const lbls={'v-clp':'3.0','v-rmix':'25%','v-thr':'0.5%','v-msrs':'80%','v-crf':'125%',
+  const lbls={'v-clp':'2.0','v-gws':'40%','v-rmix':'25%','v-thr':'0.5%','v-msrs':'80%','v-crf':'125%',
     'v-str':'100%','v-exp':'+0','v-con':'+0','v-sat':'+0','v-shp':'+0','v-den':'+0','v-gam':'1.00'};
   Object.entries(lbls).forEach(([id,txt])=>{ const el=document.getElementById(id); if(el)el.textContent=txt; });
   if (origData) reprocess();
