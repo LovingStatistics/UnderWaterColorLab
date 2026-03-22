@@ -227,13 +227,14 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
 <script>
 'use strict';
 
-// ── state ──
 let origData = null;
-let filterMatrix = null;
+let filterStats = null;
 let currentView = 'split';
 
-// ── file I/O ──
-document.getElementById('file-input').addEventListener('change', e => {
+const fileInput = document.getElementById('file-input');
+const wrapper = document.getElementById('canvas-wrapper');
+
+fileInput.addEventListener('change', e => {
   const f = e.target.files[0];
   if (!f) return;
   const r = new FileReader();
@@ -242,17 +243,30 @@ document.getElementById('file-input').addEventListener('change', e => {
   e.target.value = '';
 });
 
-const wrapper = document.getElementById('canvas-wrapper');
-wrapper.addEventListener('dragover',  e => { e.preventDefault(); wrapper.style.outline = '2px dashed rgba(0,200,255,.4)'; });
+wrapper.addEventListener('dragover', e => { e.preventDefault(); wrapper.style.outline = '2px dashed rgba(0,200,255,.4)'; });
 wrapper.addEventListener('dragleave', () => { wrapper.style.outline = ''; });
 wrapper.addEventListener('drop', e => {
-  e.preventDefault(); wrapper.style.outline = '';
+  e.preventDefault();
+  wrapper.style.outline = '';
   const f = e.dataTransfer.files[0];
-  if (f && f.type.startsWith('image/')) { const r = new FileReader(); r.onload = ev => loadImage(ev.target.result); r.readAsDataURL(f); }
+  if (!f || !f.type.startsWith('image/')) return;
+  const r = new FileReader();
+  r.onload = ev => loadImage(ev.target.result);
+  r.readAsDataURL(f);
 });
+
 document.getElementById('upload-prompt').addEventListener('click', e => {
-  if (e.target.tagName !== 'BUTTON') document.getElementById('file-input').click();
+  if (e.target.tagName !== 'BUTTON') fileInput.click();
 });
+
+function clampByte(v) {
+  return v < 0 ? 0 : v > 255 ? 255 : v;
+}
+
+function smoothstep(a, b, x) {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a || 1)));
+  return t * t * (3 - 2 * t);
+}
 
 function loadImage(src) {
   const img = new Image();
@@ -262,11 +276,14 @@ function loadImage(src) {
     if (w > MAX_W) { h = Math.round(h * MAX_W / w); w = MAX_W; }
     if (h > MAX_H) { w = Math.round(w * MAX_H / h); h = MAX_H; }
 
-    ['canvas-orig','canvas-corr','canvas-single'].forEach(id => {
-      const c = document.getElementById(id); c.width = w; c.height = h;
+    ['canvas-orig', 'canvas-corr', 'canvas-single'].forEach(id => {
+      const c = document.getElementById(id);
+      c.width = w;
+      c.height = h;
     });
 
-    const ctx = document.getElementById('canvas-orig').getContext('2d');
+    const ctx = document.getElementById('canvas-orig').getContext('2d', { willReadFrequently: true });
+    ctx.clearRect(0, 0, w, h);
     ctx.drawImage(img, 0, 0, w, h);
     origData = ctx.getImageData(0, 0, w, h);
 
@@ -280,56 +297,100 @@ function loadImage(src) {
   img.src = src;
 }
 
-// ══════════════════════════════════════════════════════════════
-//  IMPROVED UNDERWATER PIPELINE
-// ══════════════════════════════════════════════════════════════
-const RED_TARGET = 60;
-
-function clamp255(v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
-function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
-function smoothstep(a, b, x) {
-  const t = clamp01((x - a) / (b - a || 1));
-  return t * t * (3 - 2 * t);
+function percentileBounds(hist, total, pct) {
+  const cut = Math.round(total * pct / 100);
+  let lo = 0, acc = 0;
+  while (lo < 255 && acc + hist[lo] <= cut) acc += hist[lo++];
+  let hi = 255; acc = 0;
+  while (hi > 0 && acc + hist[hi] <= cut) acc += hist[hi--];
+  return [lo, Math.max(lo + 1, hi)];
 }
 
-function boxBlurGray(gray, w, h, radius) {
-  if (radius <= 0) return gray.slice();
-  const tmp = new Float32Array(gray.length);
-  const out = new Float32Array(gray.length);
-  const size = radius * 2 + 1;
+function computeFilter(pixels, threshPct) {
+  const n = pixels.length / 4;
+  let rSum = 0, gSum = 0, bSum = 0, midCount = 0;
+  let midR = 0, midG = 0, midB = 0;
+  const histR = new Uint32Array(256), histG = new Uint32Array(256), histB = new Uint32Array(256);
 
-  for (let y = 0; y < h; y++) {
-    let sum = 0;
-    const row = y * w;
-    for (let k = -radius; k <= radius; k++) {
-      const xx = Math.max(0, Math.min(w - 1, k));
-      sum += gray[row + xx];
-    }
-    for (let x = 0; x < w; x++) {
-      tmp[row + x] = sum / size;
-      const xOut = x - radius;
-      const xIn = x + radius + 1;
-      if (xOut >= 0) sum -= gray[row + xOut];
-      else sum -= gray[row];
-      if (xIn < w) sum += gray[row + xIn];
-      else sum += gray[row + w - 1];
+  for (let i = 0; i < pixels.length; i += 4) {
+    const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+    rSum += r; gSum += g; bSum += b;
+    histR[r]++; histG[g]++; histB[b]++;
+
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    if (lum > 30 && lum < 220) {
+      midR += r; midG += g; midB += b; midCount++;
     }
   }
 
-  for (let x = 0; x < w; x++) {
-    let sum = 0;
-    for (let k = -radius; k <= radius; k++) {
-      const yy = Math.max(0, Math.min(h - 1, k));
-      sum += tmp[yy * w + x];
+  const avgR = rSum / n, avgG = gSum / n, avgB = bSum / n;
+  const refR = midCount ? midR / midCount : avgR;
+  const refG = midCount ? midG / midCount : avgG;
+  const refB = midCount ? midB / midCount : avgB;
+  const target = (refR + refG + refB) / 3;
+
+  const [rLo, rHi] = percentileBounds(histR, n, threshPct);
+  const [gLo, gHi] = percentileBounds(histG, n, threshPct);
+  const [bLo, bHi] = percentileBounds(histB, n, threshPct);
+
+  const stretchR = 255 / Math.max(1, rHi - rLo);
+  const stretchG = 255 / Math.max(1, gHi - gLo);
+  const stretchB = 255 / Math.max(1, bHi - bLo);
+
+  const rawRedBoost = avgR < avgG && avgR < avgB ? (Math.min(avgG, avgB) - avgR) / Math.max(1, Math.min(avgG, avgB)) : 0;
+  const hueShift = Math.max(0, Math.min(0.32, rawRedBoost * 0.55));
+
+  const gainR = Math.min(1.55, Math.max(0.85, target / Math.max(1, refR)));
+  const gainG = Math.min(1.30, Math.max(0.90, target / Math.max(1, refG)));
+  const gainB = Math.min(1.25, Math.max(0.85, target / Math.max(1, refB)));
+
+  return {
+    avgR: Math.round(avgR), avgG: Math.round(avgG), avgB: Math.round(avgB),
+    rLo, rHi, gLo, gHi, bLo, bHi,
+    hueShift,
+    gainR, gainG, gainB,
+    stretchR, stretchG, stretchB,
+    target
+  };
+}
+
+function blurGray(gray, w, h, radius) {
+  const out = new Float32Array(gray.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum = 0, count = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= w) continue;
+          sum += gray[yy * w + xx];
+          count++;
+        }
+      }
+      out[y * w + x] = sum / count;
     }
-    for (let y = 0; y < h; y++) {
-      out[y * w + x] = sum / size;
-      const yOut = y - radius;
-      const yIn = y + radius + 1;
-      if (yOut >= 0) sum -= tmp[yOut * w + x];
-      else sum -= tmp[x];
-      if (yIn < h) sum += tmp[yIn * w + x];
-      else sum += tmp[(h - 1) * w + x];
+  }
+  return out;
+}
+
+function blurChannel(channel, w, h, radius) {
+  const out = new Float32Array(channel.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum = 0, count = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= w) continue;
+          sum += channel[yy * w + xx];
+          count++;
+        }
+      }
+      out[y * w + x] = sum / count;
     }
   }
   return out;
@@ -351,211 +412,214 @@ function ycbcrToRgb(y, cb, cr) {
   ];
 }
 
-function estimateMidtoneAverages(pixels) {
-  let r = 0, g = 0, b = 0, count = 0;
-  for (let i = 0; i < pixels.length; i += 4) {
-    const lum = 0.299 * pixels[i] + 0.587 * pixels[i+1] + 0.114 * pixels[i+2];
-    if (lum >= 24 && lum <= 235) {
-      r += pixels[i]; g += pixels[i+1]; b += pixels[i+2]; count++;
-    }
-  }
-  if (!count) return null;
-  return { r: r / count, g: g / count, b: b / count };
-}
-
-function computeFilter(pixels, threshPct) {
-  const n = pixels.length / 4;
-  let rSum = 0, gSum = 0, bSum = 0;
-  for (let i = 0; i < pixels.length; i += 4) {
-    rSum += pixels[i]; gSum += pixels[i+1]; bSum += pixels[i+2];
-  }
-  const avgR = rSum / n, avgG = gSum / n, avgB = bSum / n;
-
-  let hueShift = 0;
-  if (avgR < RED_TARGET) {
-    const blendableMean = (avgG + avgB) / 2;
-    hueShift = blendableMean > 0 ? Math.min(0.6, (RED_TARGET - avgR) / blendableMean) : 0;
-  }
-
-  const histR = new Uint32Array(256), histG = new Uint32Array(256), histB = new Uint32Array(256);
-  for (let i = 0; i < pixels.length; i += 4) {
-    const rMixed = pixels[i] + hueShift * (pixels[i+1] + pixels[i+2]) / 2;
-    histR[Math.round(clamp255(rMixed))]++;
-    histG[pixels[i+1]]++;
-    histB[pixels[i+2]]++;
-  }
-
-  function loHi(hist, total, pct) {
-    const cut = Math.round(total * pct / 100);
-    let lo = 0, acc = 0;
-    while (lo < 255 && acc + hist[lo] <= cut) acc += hist[lo++];
-    let hi = 255; acc = 0;
-    while (hi > 0 && acc + hist[hi] <= cut) acc += hist[hi--];
-    return [lo, Math.max(lo + 1, hi)];
-  }
-
-  const [rLo, rHi] = loHi(histR, n, threshPct);
-  const [gLo, gHi] = loHi(histG, n, threshPct);
-  const [bLo, bHi] = loHi(histB, n, threshPct);
-
-  const rGain = Math.min(2.2, 255 / Math.max(1, rHi - rLo));
-  const gGain = Math.min(1.7, 255 / Math.max(1, gHi - gLo));
-  const bGain = Math.min(1.7, 255 / Math.max(1, bHi - bLo));
-
-  const rOff = -rLo * rGain;
-  const gOff = -gLo * gGain;
-  const bOff = -bLo * bGain;
-
-  const matrix = { rGain, gGain, bGain, rOff, gOff, bOff, hueShift };
-  return { matrix, avgR: Math.round(avgR), avgG: Math.round(avgG), avgB: Math.round(avgB), hueShift, rGain, rOff, gGain, gOff, bGain, bOff, rLo, rHi, gLo, gHi, bLo, bHi };
-}
-
-function applyGamma(v, gamma) {
-  return 255 * Math.pow(clamp01(v / 255), 1 / Math.max(0.01, gamma));
-}
-
-function highlightRollOff(v) {
+function softHighlight(v) {
   if (v <= 220) return v;
   return 220 + (v - 220) * 0.45;
 }
 
-function applyMatrix(srcData, filter, strength, brightness, contrast, vibrance, clarity, gamma, denoise) {
-  const src = srcData.data, w = srcData.width, h = srcData.height;
-  const count = w * h;
-  const dst = new Uint8ClampedArray(src.length);
-  const s = strength / 100;
-  const contF = 1 + contrast / 100;
-  const vibF = vibrance / 100;
-  const clarityAmt = clarity / 100;
-  const denoiseAmt = denoise / 100;
+function applyGamma(v, gamma) {
+  return 255 * Math.pow(Math.max(0, Math.min(1, v / 255)), 1 / gamma);
+}
 
-  const yArr = new Float32Array(count);
-  const cbArr = new Float32Array(count);
-  const crArr = new Float32Array(count);
+function createBaseChannels(srcData, denoiseAmount) {
+  const src = srcData.data, w = srcData.width, h = srcData.height, n = w * h;
+  const y = new Float32Array(n), cb = new Float32Array(n), cr = new Float32Array(n);
   for (let i = 0, p = 0; i < src.length; i += 4, p++) {
-    const [y, cb, cr] = rgbToYcbcr(src[i], src[i+1], src[i+2]);
-    yArr[p] = y; cbArr[p] = cb; crArr[p] = cr;
+    const vals = rgbToYcbcr(src[i], src[i + 1], src[i + 2]);
+    y[p] = vals[0]; cb[p] = vals[1]; cr[p] = vals[2];
   }
 
-  const radius = denoiseAmt >= 0.45 ? 2 : (denoiseAmt > 0.01 ? 1 : 0);
-  const cbSmooth = radius ? boxBlurGray(cbArr, w, h, radius) : cbArr;
-  const crSmooth = radius ? boxBlurGray(crArr, w, h, radius) : crArr;
-  const localMean = boxBlurGray(yArr, w, h, 5);
+  if (denoiseAmount > 0) {
+    const radius = denoiseAmount > 22 ? 2 : 1;
+    const blurCb = blurChannel(cb, w, h, radius);
+    const blurCr = blurChannel(cr, w, h, radius);
+    const mix = Math.min(0.8, denoiseAmount / 40);
+    for (let p = 0; p < n; p++) {
+      cb[p] = cb[p] * (1 - mix) + blurCb[p] * mix;
+      cr[p] = cr[p] * (1 - mix) + blurCr[p] * mix;
+    }
+  }
 
-  for (let i = 0, p = 0; i < src.length; i += 4, p++) {
-    const rOrig = src[i], gOrig = src[i+1], bOrig = src[i+2];
-    const [rd, gd, bd] = ycbcrToRgb(yArr[p], cbSmooth[p], crSmooth[p]);
+  const out = new Float32Array(src.length);
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    const rgb = ycbcrToRgb(y[p], cb[p], cr[p]);
+    out[i] = rgb[0]; out[i + 1] = rgb[1]; out[i + 2] = rgb[2]; out[i + 3] = src[i + 3];
+  }
+  return out;
+}
 
-    const lum0 = yArr[p];
+function buildColorVersion(srcData, stats, strength, brightness, contrast, vibrance, gamma, base) {
+  const w = srcData.width, h = srcData.height, src = srcData.data;
+  const dst = new Uint8ClampedArray(src.length);
+  const contF = 1 + contrast / 100;
+  const vibF = vibrance / 100;
+  const globalStrength = strength / 100;
+
+  for (let i = 0; i < src.length; i += 4) {
+    const r0 = base[i], g0 = base[i + 1], b0 = base[i + 2];
+    const origR = src[i], origG = src[i + 1], origB = src[i + 2];
+    const lum0 = 0.299 * origR + 0.587 * origG + 0.114 * origB;
     const toneMask = 1 - smoothstep(150, 245, lum0);
-    const localStrength = Math.min(1, s * (0.2 + 0.6 * toneMask));
+    const localStrength = globalStrength * (0.30 + 0.70 * toneMask);
 
-    let redMix = rd + filter.hueShift * (0.35 * gd + 0.25 * bd);
-    const maxRecoveredRed = Math.max(rOrig * 1.9, gOrig * 1.35, bOrig * 1.1, 24);
-    redMix = Math.min(redMix, maxRecoveredRed);
+    let r1 = ((r0 - stats.rLo) * stats.stretchR) * stats.gainR;
+    let g1 = ((g0 - stats.gLo) * stats.stretchG) * stats.gainG;
+    let b1 = ((b0 - stats.bLo) * stats.stretchB) * stats.gainB;
 
-    let r1 = redMix * filter.rGain + filter.rOff;
-    let g1 = gd * filter.gGain + filter.gOff;
-    let b1 = bd * filter.bGain + filter.bOff;
+    const safeRed = origR + (Math.max(origG, origB) - origR) * stats.hueShift;
+    r1 = Math.min(r1, safeRed * 1.08 + 10);
 
-    r1 = rOrig + localStrength * (r1 - rOrig);
-    g1 = gOrig + localStrength * (g1 - gOrig);
-    b1 = bOrig + localStrength * (b1 - bOrig);
-
-    const detail = lum0 - localMean[p];
-    const detailBoost = detail * (0.18 + 0.55 * clarityAmt) * (0.45 + 0.55 * toneMask);
-    r1 += detailBoost; g1 += detailBoost; b1 += detailBoost;
+    r1 = origR + (r1 - origR) * localStrength;
+    g1 = origG + (g1 - origG) * localStrength;
+    b1 = origB + (b1 - origB) * localStrength;
 
     r1 += brightness; g1 += brightness; b1 += brightness;
     r1 = (r1 - 128) * contF + 128;
     g1 = (g1 - 128) * contF + 128;
     b1 = (b1 - 128) * contF + 128;
 
-    r1 = applyGamma(r1, gamma);
-    g1 = applyGamma(g1, gamma);
-    b1 = applyGamma(b1, gamma);
-
     const lum = 0.299 * r1 + 0.587 * g1 + 0.114 * b1;
     const maxC = Math.max(r1, g1, b1), minC = Math.min(r1, g1, b1);
     const sat = (maxC - minC) / Math.max(1, maxC);
-    const vAmt = vibF * (1 - sat) * (0.55 + 0.45 * toneMask);
+    const vAmt = vibF * Math.max(0, 1 - sat);
     r1 += (r1 - lum) * vAmt;
     g1 += (g1 - lum) * vAmt;
     b1 += (b1 - lum) * vAmt;
 
-    r1 = highlightRollOff(clamp255(r1));
-    g1 = highlightRollOff(clamp255(g1));
-    b1 = highlightRollOff(clamp255(b1));
+    r1 = applyGamma(r1, gamma);
+    g1 = applyGamma(g1, gamma);
+    b1 = applyGamma(b1, gamma);
 
-    dst[i] = Math.round(r1);
-    dst[i+1] = Math.round(g1);
-    dst[i+2] = Math.round(b1);
-    dst[i+3] = src[i+3];
+    dst[i] = clampByte(softHighlight(r1));
+    dst[i + 1] = clampByte(softHighlight(g1));
+    dst[i + 2] = clampByte(softHighlight(b1));
+    dst[i + 3] = src[i + 3];
   }
   return new ImageData(dst, w, h);
 }
 
-function sharpen(imgData, amount) {
-  if (amount <= 0) return imgData;
-  const src = imgData.data, w = imgData.width, h = imgData.height;
-  const dst = new Uint8ClampedArray(src);
-  const count = w * h;
-  const luma = new Float32Array(count);
-  for (let i = 0, p = 0; i < src.length; i += 4, p++) luma[p] = 0.299 * src[i] + 0.587 * src[i+1] + 0.114 * src[i+2];
-  const blur = boxBlurGray(luma, w, h, 1);
-  const a = amount / 100;
-  for (let i = 0, p = 0; i < src.length; i += 4, p++) {
-    const detail = luma[p] - blur[p];
-    const edgeMask = Math.min(1, Math.abs(detail) / 12);
-    const boost = detail * a * (0.8 + 0.2 * edgeMask) * edgeMask;
-    dst[i] = Math.round(clamp255(src[i] + boost));
-    dst[i+1] = Math.round(clamp255(src[i+1] + boost));
-    dst[i+2] = Math.round(clamp255(src[i+2] + boost));
+function buildContrastVersion(srcData, brightness, contrast, gamma, base) {
+  const w = srcData.width, h = srcData.height, src = srcData.data;
+  const n = w * h;
+  const lum = new Float32Array(n);
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    lum[p] = 0.299 * base[i] + 0.587 * base[i + 1] + 0.114 * base[i + 2];
   }
-  return new ImageData(dst, w, h);
+  const localMean = blurGray(lum, w, h, 6);
+  const clarityStrength = Math.max(0.35, 0.65 + contrast / 160);
+  const out = new Uint8ClampedArray(src.length);
+
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    const detail = lum[p] - localMean[p];
+    let r = base[i] + detail * clarityStrength + brightness * 0.35;
+    let g = base[i + 1] + detail * clarityStrength + brightness * 0.35;
+    let b = base[i + 2] + detail * clarityStrength + brightness * 0.35;
+
+    r = (r - 128) * (1 + contrast / 180) + 128;
+    g = (g - 128) * (1 + contrast / 180) + 128;
+    b = (b - 128) * (1 + contrast / 180) + 128;
+
+    r = applyGamma(r, gamma);
+    g = applyGamma(g, gamma);
+    b = applyGamma(b, gamma);
+
+    out[i] = clampByte(softHighlight(r));
+    out[i + 1] = clampByte(softHighlight(g));
+    out[i + 2] = clampByte(softHighlight(b));
+    out[i + 3] = src[i + 3];
+  }
+
+  return new ImageData(out, w, h);
+}
+
+function fuseImages(colorData, contrastData, strength) {
+  const a = colorData.data, b = contrastData.data;
+  const out = new Uint8ClampedArray(a.length);
+  const favorColor = Math.max(0.52, Math.min(0.82, 0.58 + strength / 500));
+
+  for (let i = 0; i < a.length; i += 4) {
+    const satA = Math.max(a[i], a[i + 1], a[i + 2]) - Math.min(a[i], a[i + 1], a[i + 2]);
+    const satB = Math.max(b[i], b[i + 1], b[i + 2]) - Math.min(b[i], b[i + 1], b[i + 2]);
+    const wA = favorColor * (satA + 12);
+    const wB = (1 - favorColor) * (satB + 12);
+    const norm = wA + wB;
+    out[i] = clampByte((a[i] * wA + b[i] * wB) / norm);
+    out[i + 1] = clampByte((a[i + 1] * wA + b[i + 1] * wB) / norm);
+    out[i + 2] = clampByte((a[i + 2] * wA + b[i + 2] * wB) / norm);
+    out[i + 3] = a[i + 3];
+  }
+  return new ImageData(out, colorData.width, colorData.height);
+}
+
+function sharpenLuma(imgData, amount) {
+  if (amount <= 0) return imgData;
+  const src = imgData.data, w = imgData.width, h = imgData.height, n = w * h;
+  const luma = new Float32Array(n);
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    luma[p] = 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
+  }
+  const blur = blurGray(luma, w, h, 1);
+  const out = new Uint8ClampedArray(src);
+  const a = amount / 100;
+
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    const detail = luma[p] - blur[p];
+    const edgeMask = Math.min(1, Math.abs(detail) / 14);
+    const boost = detail * a * edgeMask;
+    out[i] = clampByte(src[i] + boost);
+    out[i + 1] = clampByte(src[i + 1] + boost);
+    out[i + 2] = clampByte(src[i + 2] + boost);
+    out[i + 3] = src[i + 3];
+  }
+  return new ImageData(out, w, h);
 }
 
 function recompute() {
   if (!origData) return;
   const threshPct = parseFloat(document.getElementById('sl-thr').value) * 0.1;
-  const res = computeFilter(origData.data, threshPct);
-  filterMatrix = res.matrix;
-  document.getElementById('depth-val').textContent = res.avgR;
-  ['r','g','b'].forEach(c => {
-    const avg = res['avg' + c.toUpperCase()];
-    document.getElementById('bar-'+c).style.width = (avg/255*100)+'%';
-    document.getElementById('num-'+c).textContent = avg;
+  const stats = computeFilter(origData.data, threshPct);
+  filterStats = stats;
+
+  document.getElementById('depth-val').textContent = stats.avgR;
+  ['r', 'g', 'b'].forEach(c => {
+    const avg = stats['avg' + c.toUpperCase()];
+    document.getElementById('bar-' + c).style.width = (avg / 255 * 100) + '%';
+    document.getElementById('num-' + c).textContent = avg;
   });
-  const isGreen = res.avgG > res.avgR * 1.1 && res.avgG > res.avgB;
-  const castLabel = res.avgR >= 60 ? '✅ balanced' : isGreen ? '🟢 green cast' : '🔵 blue cast';
+
+  const isGreen = stats.avgG > stats.avgR * 1.08 && stats.avgG > stats.avgB;
+  const castLabel = stats.avgR >= 72 ? '✅ balanced' : isGreen ? '🟢 green cast' : '🔵 blue cast';
   document.getElementById('analysis-pills').innerHTML = `
-    <span class="pill pill-n">hue shift: ${res.hueShift.toFixed(3)}</span>
+    <span class="pill pill-n">fusion pipeline</span>
     <span class="pill pill-n">${castLabel}</span>
-    <span class="pill pill-r">R lo:${res.rLo} hi:${res.rHi}</span>
-    <span class="pill pill-g">G lo:${res.gLo} hi:${res.gHi}</span>
-    <span class="pill pill-b">B lo:${res.bLo} hi:${res.bHi}</span>
+    <span class="pill pill-n">hue shift: ${stats.hueShift.toFixed(3)}</span>
+    <span class="pill pill-r">R lo:${stats.rLo} hi:${stats.rHi}</span>
+    <span class="pill pill-g">G lo:${stats.gLo} hi:${stats.gHi}</span>
+    <span class="pill pill-b">B lo:${stats.bLo} hi:${stats.bHi}</span>
   `;
-  document.getElementById('av-hs').textContent = res.hueShift.toFixed(4);
-  document.getElementById('av-r').textContent = `${res.rGain.toFixed(3)}  +${Math.round(res.rOff)}`;
-  document.getElementById('av-g').textContent = `${res.gGain.toFixed(3)}  +${Math.round(res.gOff)}`;
-  document.getElementById('av-b').textContent = `${res.bGain.toFixed(3)}  +${Math.round(res.bOff)}`;
+  document.getElementById('av-hs').textContent = stats.hueShift.toFixed(4);
+  document.getElementById('av-r').textContent = `${stats.gainR.toFixed(3)}  × ${stats.stretchR.toFixed(3)}`;
+  document.getElementById('av-g').textContent = `${stats.gainG.toFixed(3)}  × ${stats.stretchG.toFixed(3)}`;
+  document.getElementById('av-b').textContent = `${stats.gainB.toFixed(3)}  × ${stats.stretchB.toFixed(3)}`;
   document.getElementById('algo-panel').style.display = 'block';
   applyFilter();
 }
 
 function applyFilter() {
-  if (!origData || !filterMatrix) return;
-  const strength = parseInt(document.getElementById('sl-str').value);
-  const shp = parseInt(document.getElementById('sl-shp').value);
-  const bri = parseInt(document.getElementById('sl-bri').value);
-  const con = parseInt(document.getElementById('sl-con').value);
-  const sat = parseInt(document.getElementById('sl-sat').value);
-  const cla = parseInt(document.getElementById('sl-cla').value);
-  const gam = parseInt(document.getElementById('sl-gam').value) / 100;
-  const den = parseInt(document.getElementById('sl-den').value);
+  if (!origData || !filterStats) return;
+  const strength = parseInt(document.getElementById('sl-str').value, 10);
+  const sharpen = parseInt(document.getElementById('sl-shp').value, 10);
+  const brightness = parseInt(document.getElementById('sl-bri').value, 10);
+  const contrast = parseInt(document.getElementById('sl-con').value, 10);
+  const vibrance = parseInt(document.getElementById('sl-sat').value, 10);
+  const gamma = contrast >= 0 ? Math.max(0.78, 1 - contrast / 280) : Math.min(1.24, 1 - contrast / 420);
+  const denoiseAmount = filterStats.hueShift > 0.18 ? 18 : 10;
 
-  let out = applyMatrix(origData, filterMatrix, strength, bri, con, sat, cla, gam, den);
-  if (shp > 0) out = sharpen(out, shp);
+  const base = createBaseChannels(origData, denoiseAmount);
+  const colorVersion = buildColorVersion(origData, filterStats, strength, brightness, contrast, vibrance, gamma, base);
+  const contrastVersion = buildContrastVersion(origData, brightness, contrast, gamma, base);
+  let out = fuseImages(colorVersion, contrastVersion, strength);
+  if (sharpen > 0) out = sharpenLuma(out, sharpen);
 
   document.getElementById('canvas-corr').getContext('2d').putImageData(out, 0, 0);
   drawHistogram(out.data);
@@ -573,33 +637,50 @@ document.querySelectorAll('.view-btn').forEach(btn => {
 
 function refreshView() {
   if (!origData) return;
-  const sp = document.getElementById('split-view'), sg = document.getElementById('single-view');
-  if (currentView === 'split') { sp.classList.add('active'); sg.classList.remove('active'); } 
-  else {
-    sp.classList.remove('active'); sg.classList.add('active');
-    const sc = document.getElementById('canvas-single');
-    sc.width = origData.width; sc.height = origData.height;
-    const ctx = sc.getContext('2d');
-    if (currentView === 'original') ctx.putImageData(origData, 0, 0);
-    else ctx.drawImage(document.getElementById('canvas-corr'), 0, 0);
+  const split = document.getElementById('split-view');
+  const single = document.getElementById('single-view');
+  if (currentView === 'split') {
+    split.classList.add('active');
+    single.classList.remove('active');
+    return;
   }
+  split.classList.remove('active');
+  single.classList.add('active');
+  const sc = document.getElementById('canvas-single');
+  sc.width = origData.width;
+  sc.height = origData.height;
+  const ctx = sc.getContext('2d');
+  if (currentView === 'original') ctx.putImageData(origData, 0, 0);
+  else ctx.drawImage(document.getElementById('canvas-corr'), 0, 0);
 }
 
 function drawHistogram(data) {
   const canvas = document.getElementById('histogram-canvas');
-  canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
-  const ctx = canvas.getContext('2d'), bR = new Uint32Array(256), bG = new Uint32Array(256), bB = new Uint32Array(256);
-  for (let i = 0; i < data.length; i += 4) { bR[data[i]]++; bG[data[i+1]]++; bB[data[i+2]]++; }
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  const ctx = canvas.getContext('2d');
+  const bR = new Uint32Array(256), bG = new Uint32Array(256), bB = new Uint32Array(256);
+  for (let i = 0; i < data.length; i += 4) {
+    bR[data[i]]++;
+    bG[data[i + 1]]++;
+    bB[data[i + 2]]++;
+  }
   const mx = Math.max(...bR, ...bG, ...bB) || 1;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   [['#e0505055', bR], ['#50cc6055', bG], ['#4080e055', bB]].forEach(([col, bins]) => {
-    ctx.beginPath(); ctx.moveTo(0, canvas.height);
-    for (let x = 0; x < 256; x++) ctx.lineTo(x/255*canvas.width, canvas.height - bins[x]/mx*(canvas.height-3));
-    ctx.lineTo(canvas.width, canvas.height); ctx.closePath();
-    ctx.fillStyle = col; ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height);
+    for (let x = 0; x < 256; x++) {
+      ctx.lineTo(x / 255 * canvas.width, canvas.height - bins[x] / mx * (canvas.height - 3));
+    }
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.closePath();
+    ctx.fillStyle = col;
+    ctx.fill();
   });
 }
 
-function onSlider(el, valId, suffix, scale, forceFixed) {
+function onSlider(el, valId, suffix, scale) {
   const raw = parseFloat(el.value);
   const v = scale ? raw * scale : raw;
   const pct = (raw - parseFloat(el.min)) / (parseFloat(el.max) - parseFloat(el.min)) * 100;
@@ -608,23 +689,23 @@ function onSlider(el, valId, suffix, scale, forceFixed) {
   const labelEl = document.getElementById(valId);
   if (!labelEl) return;
   if (suffix) labelEl.textContent = v.toFixed(scale ? 1 : 0) + suffix;
-  else if (forceFixed) labelEl.textContent = v.toFixed(2);
   else labelEl.textContent = (v >= 0 ? '+' : '') + Math.round(v);
 }
 
 document.querySelectorAll('input[type=range]').forEach(el => onSlider(el, null));
 
 function resetSliders() {
-  const defs = {'sl-str':100,'sl-shp':0,'sl-bri':0,'sl-con':0,'sl-sat':0,'sl-cla':10,'sl-gam':100,'sl-den':10,'sl-thr':5};
-  Object.entries(defs).forEach(([id,v]) => { const el=document.getElementById(id); el.value=v; onSlider(el,null); });
+  const defs = { 'sl-str': 100, 'sl-shp': 0, 'sl-bri': 0, 'sl-con': 0, 'sl-sat': 0, 'sl-thr': 5 };
+  Object.entries(defs).forEach(([id, v]) => {
+    const el = document.getElementById(id);
+    el.value = v;
+    onSlider(el, null);
+  });
   document.getElementById('val-str').textContent = '100%';
   document.getElementById('val-shp').textContent = '+0';
   document.getElementById('val-bri').textContent = '+0';
   document.getElementById('val-con').textContent = '+0';
   document.getElementById('val-sat').textContent = '+0';
-  document.getElementById('val-cla').textContent = '+10';
-  document.getElementById('val-gam').textContent = '1.00';
-  document.getElementById('val-den').textContent = '+10';
   document.getElementById('val-thr').textContent = '0.5%';
   recompute();
 }
