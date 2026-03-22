@@ -132,7 +132,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
         <div id="upload-prompt">
           <div class="upload-ring">📷</div>
           <h2>Drop an underwater photo</h2>
-          <p>Enhanced algorithm uses per-channel denoising and vibrance-aware restoration to minimize grain.</p>
+          <p>Upload a photo. The algorithm auto-detects color cast and restores lost wavelengths via hue-shift and per-channel histogram stretching.</p>
           <button class="btn-primary" style="margin-top:8px;max-width:180px;padding:10px 20px" onclick="document.getElementById('file-input').click()">Choose image</button>
         </div>
         <div class="canvas-split" id="split-view">
@@ -170,6 +170,10 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
           <div class="slider-row">
             <div class="slider-header"><span class="slider-name">Correction strength</span><span class="slider-val" id="val-str">100%</span></div>
             <input type="range" id="sl-str" min="0" max="150" value="100" oninput="onSlider(this,'val-str','%'); applyFilter()">
+          </div>
+          <div class="slider-row">
+            <div class="slider-header"><span class="slider-name">Sharpening</span><span class="slider-val" id="val-shp">+0</span></div>
+            <input type="range" id="sl-shp" min="0" max="100" value="0" oninput="onSlider(this,'val-shp'); applyFilter()">
           </div>
           <div class="slider-row">
             <div class="slider-header"><span class="slider-name">Brightness</span><span class="slider-val" id="val-bri">+0</span></div>
@@ -211,6 +215,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
 <script>
 'use strict';
 
+// ── state ──
 let origData = null;
 let filterMatrix = null;
 let currentView = 'split';
@@ -233,11 +238,14 @@ wrapper.addEventListener('drop', e => {
   const f = e.dataTransfer.files[0];
   if (f && f.type.startsWith('image/')) { const r = new FileReader(); r.onload = ev => loadImage(ev.target.result); r.readAsDataURL(f); }
 });
+document.getElementById('upload-prompt').addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') document.getElementById('file-input').click();
+});
 
 function loadImage(src) {
   const img = new Image();
   img.onload = () => {
-    const MAX_W = 1200, MAX_H = 900;
+    const MAX_W = 1000, MAX_H = 750;
     let w = img.naturalWidth, h = img.naturalHeight;
     if (w > MAX_W) { h = Math.round(h * MAX_W / w); w = MAX_W; }
     if (h > MAX_H) { w = Math.round(w * MAX_H / h); h = MAX_H; }
@@ -260,6 +268,9 @@ function loadImage(src) {
   img.src = src;
 }
 
+// ══════════════════════════════════════════════════════════════
+//  NIKOLAJBECH ALGORITHM  (faithful JS port)
+// ══════════════════════════════════════════════════════════════
 const RED_TARGET = 60;
 
 function computeFilter(pixels, threshPct) {
@@ -278,103 +289,83 @@ function computeFilter(pixels, threshPct) {
 
   const histR = new Int32Array(256), histG = new Int32Array(256), histB = new Int32Array(256);
   for (let i = 0; i < pixels.length; i += 4) {
-    const g = pixels[i+1], b = pixels[i+2];
-    const r1 = Math.min(255, Math.round(pixels[i] + hueShift * (g + b) / 2));
-    histR[r1]++; histG[g]++; histB[b]++;
+    const r1 = Math.min(255, Math.round(pixels[i] + hueShift * (pixels[i+1] + pixels[i+2]) / 2));
+    histR[r1]++; histG[pixels[i+1]]++; histB[pixels[i+2]]++;
   }
 
   function loHi(hist, total, pct) {
     const cut = Math.round(total * pct / 100);
-    let lo = 0, acc = 0;
-    while (lo < 255 && acc + hist[lo] <= cut) acc += hist[lo++];
-    let hi = 255; acc = 0;
-    while (hi > 0   && acc + hist[hi] <= cut) acc += hist[hi--];
-    if (hi <= lo) hi = Math.min(255, lo + 1);
-    return [lo, hi];
+    let lo = 0, acc = 0; while (lo < 255 && acc + hist[lo] <= cut) acc += hist[lo++];
+    let hi = 255; acc = 0; while (hi > 0 && acc + hist[hi] <= cut) acc += hist[hi--];
+    return [lo, Math.max(lo + 1, hi)];
   }
 
-  const [rLo, rHi] = loHi(histR, n, threshPct);
-  const [gLo, gHi] = loHi(histG, n, threshPct);
-  const [bLo, bHi] = loHi(histB, n, threshPct);
-
-  const rGain = 255 / Math.max(1, rHi - rLo);
-  const gGain = 255 / Math.max(1, gHi - gLo);
-  const bGain = 255 / Math.max(1, bHi - bLo);
-  const rOff  = -rLo * rGain;
-  const gOff  = -gLo * gGain;
-  const bOff  = -bLo * bGain;
-
+  const [rLo, rHi] = loHi(histR, n, threshPct), [gLo, gHi] = loHi(histG, n, threshPct), [bLo, bHi] = loHi(histB, n, threshPct);
+  const rGain = 255 / (rHi - rLo), gGain = 255 / (gHi - gLo), bGain = 255 / (bHi - bLo);
+  const rOff = -rLo * rGain, gOff = -gLo * gGain, bOff = -bLo * bGain;
   const hs2 = hueShift / 2;
-  const matrix = [
-    rGain,       rGain*hs2,   rGain*hs2,   0,  rOff/255,
-    0,           gGain,       0,            0,  gOff/255,
-    0,           0,           bGain,        0,  bOff/255,
-    0,           0,           0,            1,  0
-  ];
+  const matrix = [rGain, rGain*hs2, rGain*hs2, 0, rOff/255, 0, gGain, 0, 0, gOff/255, 0, 0, bGain, 0, bOff/255, 0, 0, 0, 1, 0];
 
-  return { matrix, avgR: Math.round(avgR), avgG: Math.round(avgG), avgB: Math.round(avgB), 
-           hueShift, rGain, rOff, gGain, gOff, bGain, bOff, rLo, rHi, gLo, gHi, bLo, bHi };
+  return { matrix, avgR: Math.round(avgR), avgG: Math.round(avgG), avgB: Math.round(avgB), hueShift, rGain, rOff, gGain, gOff, bGain, bOff, rLo, rHi, gLo, gHi, bLo, bHi };
 }
 
 // ── Improved applyMatrix ──
 function applyMatrix(srcData, matrix, strength, brightness, contrast, vibrance) {
-  const src = srcData.data;
-  const w = srcData.width, h = srcData.height;
-  const dst = new Uint8ClampedArray(src.length);
-  const s = strength / 100;
-  const contF = 1 + contrast / 100;
-  const vibF = vibrance / 100;
-  const m = matrix;
+  const src = srcData.data, w = srcData.width, h = srcData.height, dst = new Uint8ClampedArray(src.length);
+  const s = strength / 100, contF = 1 + contrast / 100, vibF = vibrance / 100, m = matrix;
 
-  // Pre-calculate Red Denoising Buffer if gain is high
   const useDenoise = m[0] > 1.8;
-  let blurredRed = null;
+  let blurR = null;
   if (useDenoise) {
-    blurredRed = new Uint8Array(w * h);
-    for (let i = 0; i < src.length; i += 4) blurredRed[i/4] = src[i];
-    // Simple 1D box pass for speed
+    blurR = new Uint8Array(w * h);
+    for (let i = 0; i < src.length; i += 4) blurR[i/4] = src[i];
     for (let y = 0; y < h; y++) {
       for (let x = 1; x < w - 1; x++) {
         const idx = y * w + x;
-        blurredRed[idx] = (blurredRed[idx-1] + blurredRed[idx] + blurredRed[idx+1]) / 3;
+        blurR[idx] = (blurR[idx-1] + blurR[idx] + blurR[idx+1]) / 3;
       }
     }
   }
 
   for (let i = 0; i < src.length; i += 4) {
-    const idx = i / 4;
-    const r0 = (useDenoise) ? blurredRed[idx] : src[i];
-    const g0 = src[i+1];
-    const b0 = src[i+2];
-
+    const r0 = useDenoise ? blurR[i/4] : src[i], g0 = src[i+1], b0 = src[i+2];
     let r1 = r0*m[0] + g0*m[1] + b0*m[2] + m[4]*255;
-    let g1 =           g0*m[6]            + m[9]*255;
-    let b1 =                      b0*m[12]+ m[14]*255;
+    let g1 = g0*m[6] + m[9]*255;
+    let b1 = b0*m[12] + m[14]*255;
 
-    r1 = src[i] + s*(r1 - src[i]);
-    g1 = g0 + s*(g1 - g0);
-    b1 = b0 + s*(b1 - b0);
-
+    r1 = src[i] + s*(r1 - src[i]); g1 = g0 + s*(g1 - g0); b1 = b0 + s*(b1 - b0);
     r1 += brightness; g1 += brightness; b1 += brightness;
-    r1 = (r1 - 128)*contF + 128;
-    g1 = (g1 - 128)*contF + 128;
-    b1 = (b1 - 128)*contF + 128;
+    r1 = (r1 - 128)*contF + 128; g1 = (g1 - 128)*contF + 128; b1 = (b1 - 128)*contF + 128;
 
-    // Vibrance Logic: Boost less-saturated pixels more
     const lum = 0.299*r1 + 0.587*g1 + 0.114*b1;
-    const maxC = Math.max(r1, g1, b1);
-    const minC = Math.min(r1, g1, b1);
+    const maxC = Math.max(r1, g1, b1), minC = Math.min(r1, g1, b1);
     const sat = (maxC - minC) / (maxC || 1);
-    const vibAmt = vibF * (1 - sat);
-    
-    r1 += (r1 - lum) * vibAmt;
-    g1 += (g1 - lum) * vibAmt;
-    b1 += (b1 - lum) * vibAmt;
+    const vAmt = vibF * (1 - sat);
+    r1 += (r1 - lum) * vAmt; g1 += (g1 - lum) * vAmt; b1 += (b1 - lum) * vAmt;
 
-    dst[i]   = Math.max(0, Math.min(255, Math.round(r1)));
+    dst[i] = Math.max(0, Math.min(255, Math.round(r1)));
     dst[i+1] = Math.max(0, Math.min(255, Math.round(g1)));
     dst[i+2] = Math.max(0, Math.min(255, Math.round(b1)));
     dst[i+3] = src[i+3];
+  }
+  return new ImageData(dst, w, h);
+}
+
+// ── Convolution Sharpening ──
+function sharpen(imgData, amount) {
+  if (amount <= 0) return imgData;
+  const src = imgData.data, w = imgData.width, h = imgData.height, dst = new Uint8ClampedArray(src.length);
+  const a = amount / 100;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const idx = (y * w + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        const i = idx + c;
+        const val = src[i] * (1 + 4*a) - a * (src[i-4] + src[i+4] + src[i-w*4] + src[i+w*4]);
+        dst[i] = Math.max(0, Math.min(255, val));
+      }
+      dst[idx+3] = src[idx+3];
+    }
   }
   return new ImageData(dst, w, h);
 }
@@ -384,43 +375,42 @@ function recompute() {
   const threshPct = parseFloat(document.getElementById('sl-thr').value) * 0.1;
   const res = computeFilter(origData.data, threshPct);
   filterMatrix = res.matrix;
-
   document.getElementById('depth-val').textContent = res.avgR;
   ['r','g','b'].forEach(c => {
     const avg = res['avg' + c.toUpperCase()];
     document.getElementById('bar-'+c).style.width = (avg/255*100)+'%';
     document.getElementById('num-'+c).textContent = avg;
   });
-
-  const pills = document.getElementById('analysis-pills');
   const isGreen = res.avgG > res.avgR * 1.1 && res.avgG > res.avgB;
-  const isBlue  = res.avgB > res.avgR * 1.1 && res.avgB >= res.avgG;
   const castLabel = res.avgR >= 60 ? '✅ balanced' : isGreen ? '🟢 green cast' : '🔵 blue cast';
-  pills.innerHTML = `
+  document.getElementById('analysis-pills').innerHTML = `
     <span class="pill pill-n">hue shift: ${res.hueShift.toFixed(3)}</span>
     <span class="pill pill-n">${castLabel}</span>
-    <span class="pill pill-r">R gain: ${res.rGain.toFixed(1)}x</span>
+    <span class="pill pill-r">R lo:${res.rLo} hi:${res.rHi}</span>
+    <span class="pill pill-g">G lo:${res.gLo} hi:${res.gHi}</span>
+    <span class="pill pill-b">B lo:${res.bLo} hi:${res.bHi}</span>
   `;
-
   document.getElementById('av-hs').textContent = res.hueShift.toFixed(4);
-  document.getElementById('av-r').textContent  = `${res.rGain.toFixed(3)}  +${Math.round(res.rOff)}`;
-  document.getElementById('av-g').textContent  = `${res.gGain.toFixed(3)}  +${Math.round(res.gOff)}`;
-  document.getElementById('av-b').textContent  = `${res.bGain.toFixed(3)}  +${Math.round(res.bOff)}`;
+  document.getElementById('av-r').textContent = `${res.rGain.toFixed(3)}  +${Math.round(res.rOff)}`;
+  document.getElementById('av-g').textContent = `${res.gGain.toFixed(3)}  +${Math.round(res.gOff)}`;
+  document.getElementById('av-b').textContent = `${res.bGain.toFixed(3)}  +${Math.round(res.bOff)}`;
   document.getElementById('algo-panel').style.display = 'block';
-
   applyFilter();
 }
 
 function applyFilter() {
   if (!origData || !filterMatrix) return;
   const strength = parseInt(document.getElementById('sl-str').value);
+  const shp = parseInt(document.getElementById('sl-shp').value);
   const bri = parseInt(document.getElementById('sl-bri').value);
   const con = parseInt(document.getElementById('sl-con').value);
   const sat = parseInt(document.getElementById('sl-sat').value);
 
-  const corrected = applyMatrix(origData, filterMatrix, strength, bri, con, sat);
-  document.getElementById('canvas-corr').getContext('2d').putImageData(corrected, 0, 0);
-  drawHistogram(corrected.data);
+  let out = applyMatrix(origData, filterMatrix, strength, bri, con, sat);
+  if (shp > 0) out = sharpen(out, shp);
+
+  document.getElementById('canvas-corr').getContext('2d').putImageData(out, 0, 0);
+  drawHistogram(out.data);
   refreshView();
 }
 
@@ -435,8 +425,7 @@ document.querySelectorAll('.view-btn').forEach(btn => {
 
 function refreshView() {
   if (!origData) return;
-  const sp = document.getElementById('split-view');
-  const sg = document.getElementById('single-view');
+  const sp = document.getElementById('split-view'), sg = document.getElementById('single-view');
   if (currentView === 'split') { sp.classList.add('active'); sg.classList.remove('active'); } 
   else {
     sp.classList.remove('active'); sg.classList.add('active');
@@ -450,15 +439,10 @@ function refreshView() {
 
 function drawHistogram(data) {
   const canvas = document.getElementById('histogram-canvas');
-  canvas.width  = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const bR = new Uint32Array(256), bG = new Uint32Array(256), bB = new Uint32Array(256);
+  canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
+  const ctx = canvas.getContext('2d'), bR = new Uint32Array(256), bG = new Uint32Array(256), bB = new Uint32Array(256);
   for (let i = 0; i < data.length; i += 4) { bR[data[i]]++; bG[data[i+1]]++; bB[data[i+2]]++; }
   const mx = Math.max(...bR, ...bG, ...bB) || 1;
-
   [['#e0505055', bR], ['#50cc6055', bG], ['#4080e055', bB]].forEach(([col, bins]) => {
     ctx.beginPath(); ctx.moveTo(0, canvas.height);
     for (let x = 0; x < 256; x++) ctx.lineTo(x/255*canvas.width, canvas.height - bins[x]/mx*(canvas.height-3));
@@ -472,20 +456,24 @@ function onSlider(el, valId, suffix, scale) {
   const v = scale ? raw * scale : raw;
   const pct = (raw - parseFloat(el.min)) / (parseFloat(el.max) - parseFloat(el.min)) * 100;
   el.style.setProperty('--pct', pct + '%');
-  if (valId) document.getElementById(valId).textContent = (v >= 0 && !suffix ? '+' : '') + (suffix ? v.toFixed(1) + suffix : Math.round(v));
+  if (!valId) return;
+  const labelEl = document.getElementById(valId);
+  if (!labelEl) return;
+  if (suffix) labelEl.textContent = v.toFixed(scale ? 1 : 0) + suffix;
+  else labelEl.textContent = (v >= 0 ? '+' : '') + Math.round(v);
 }
 
 document.querySelectorAll('input[type=range]').forEach(el => onSlider(el, null));
 
 function resetSliders() {
-  const defs = {'sl-str':100,'sl-bri':0,'sl-con':0,'sl-sat':0,'sl-thr':5};
+  const defs = {'sl-str':100,'sl-shp':0,'sl-bri':0,'sl-con':0,'sl-sat':0,'sl-thr':5};
   Object.entries(defs).forEach(([id,v]) => { const el=document.getElementById(id); el.value=v; onSlider(el,null); });
-  ['val-str','val-bri','val-con','val-sat','val-thr'].forEach(id => {
-     const el = document.getElementById(id);
-     if(id === 'val-str') el.textContent = '100%';
-     else if(id === 'val-thr') el.textContent = '0.5%';
-     else el.textContent = '+0';
-  });
+  document.getElementById('val-str').textContent = '100%';
+  document.getElementById('val-shp').textContent = '+0';
+  document.getElementById('val-bri').textContent = '+0';
+  document.getElementById('val-con').textContent = '+0';
+  document.getElementById('val-sat').textContent = '+0';
+  document.getElementById('val-thr').textContent = '0.5%';
   recompute();
 }
 
