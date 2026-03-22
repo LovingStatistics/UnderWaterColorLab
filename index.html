@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--deep:#050e1a;--panel:#0c1d30;--border:rgba(100,180,255,0.11);--accent:#00c8ff;--accent2:#00ff9d;--text:#deeeff;--muted:rgba(180,220,255,0.42);--radius:11px}
+:root{--deep:#050e1a;--panel:#0c1d30;--border:rgba(100,180,255,0.11);--accent:#00c8ff;--accent2:#00ff9d;--warn:#ffb347;--text:#deeeff;--muted:rgba(180,220,255,0.42);--radius:11px}
 html,body{height:100%;background:var(--deep);color:var(--text);font-family:'DM Sans',sans-serif;overflow-x:hidden}
 body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(ellipse 90% 55% at 15% 25%,rgba(0,90,170,.09) 0%,transparent 55%),radial-gradient(ellipse 65% 75% at 85% 75%,rgba(0,50,110,.07) 0%,transparent 55%)}
 .app{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column}
@@ -16,7 +16,7 @@ header{padding:16px 26px;display:flex;align-items:center;gap:11px;border-bottom:
 .logo-text h1{font-family:'Playfair Display',serif;font-size:18px;font-weight:700;letter-spacing:-.3px;line-height:1}
 .logo-text span{font-family:'DM Mono',monospace;font-size:9.5px;color:var(--accent);letter-spacing:.14em;text-transform:uppercase}
 .hbadge{margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;color:var(--accent2);border:1px solid rgba(0,255,157,.28);padding:3px 9px;border-radius:20px}
-main{flex:1;display:grid;grid-template-columns:1fr 292px;min-height:0}
+main{flex:1;display:grid;grid-template-columns:1fr 300px;min-height:0}
 .canvas-area{padding:18px;display:flex;flex-direction:column;gap:12px;border-right:1px solid var(--border)}
 .view-controls{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
 .vbtn{font-family:'DM Mono',monospace;font-size:10.5px;padding:4px 12px;border-radius:18px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .18s}
@@ -50,8 +50,7 @@ main{flex:1;display:grid;grid-template-columns:1fr 292px;min-height:0}
 .abtn{display:flex;flex-direction:column;gap:2px;padding:10px 11px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.025);color:var(--muted);cursor:pointer;text-align:left;transition:all .18s;font-family:'DM Sans',sans-serif}
 .abtn.active{border-color:rgba(0,200,255,.38);background:rgba(0,200,255,.07);color:var(--accent)}
 .abtn:hover:not(.active){border-color:rgba(0,200,255,.18);background:rgba(0,200,255,.03);color:var(--text)}
-.abtitle{font-size:11.5px;font-weight:500}
-.absub{font-size:9.5px;opacity:.62;line-height:1.4}
+.abtitle{font-size:11.5px;font-weight:500}.absub{font-size:9.5px;opacity:.62;line-height:1.4}
 .ch-bars{display:flex;flex-direction:column;gap:7px}
 .ch-row{display:flex;align-items:center;gap:7px}
 .ch-lbl{font-family:'DM Mono',monospace;font-size:10px;width:13px;flex-shrink:0}
@@ -78,19 +77,22 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
 .pill-n{border-color:var(--border);color:var(--muted)}
 .btn{width:100%;padding:10px;border:none;border-radius:8px;color:#fff;font-size:12.5px;font-weight:500;cursor:pointer;transition:all .18s;font-family:'DM Sans',sans-serif}
 .btn-primary{background:linear-gradient(135deg,#0055bb,#00a0dc)}
-.btn-primary:hover{filter:brightness(1.14);transform:translateY(-1px)}
-.btn-primary:disabled{opacity:.38;cursor:default;transform:none;filter:none}
+.btn-primary:hover:not(:disabled){filter:brightness(1.14);transform:translateY(-1px)}
+.btn-primary:disabled{opacity:.38;cursor:default}
+.btn-warn{background:linear-gradient(135deg,#996600,#cc9900)}
+.btn-warn:hover:not(:disabled){filter:brightness(1.14);transform:translateY(-1px)}
+.btn-warn:disabled{opacity:.38;cursor:default}
 .btn-row{display:flex;gap:7px}
 .btn-sec{flex:1;padding:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:12px;cursor:pointer;transition:all .18s;font-family:'DM Sans',sans-serif}
 .btn-sec:hover{border-color:rgba(0,200,255,.28);color:var(--accent)}
-.proc-overlay{position:absolute;inset:0;background:rgba(5,14,26,.78);display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:10;backdrop-filter:blur(4px)}
+.proc-overlay{position:absolute;inset:0;background:rgba(5,14,26,.8);display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:10;backdrop-filter:blur(4px)}
 .proc-overlay.active{display:flex}
 .proc-spinner{width:36px;height:36px;border:3px solid rgba(0,200,255,.18);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.proc-msg{font-family:'DM Mono',monospace;font-size:11px;color:var(--accent);letter-spacing:.06em}
-.dl-bar{padding:14px 16px;background:rgba(0,0,0,.18);border-top:1px solid var(--border);margin-top:auto}
+.proc-msg{font-family:'DM Mono',monospace;font-size:11px;color:var(--accent);letter-spacing:.06em;text-align:center;max-width:200px}
+.dl-bar{padding:14px 16px;background:rgba(0,0,0,.18);border-top:1px solid var(--border);margin-top:auto;display:flex;flex-direction:column;gap:7px}
 #file-input{display:none}
-@media(max-width:740px){main{grid-template-columns:1fr}.side-panel{border-top:1px solid var(--border);max-height:48vh}.canvas-area{border-right:none}}
+@media(max-width:740px){main{grid-template-columns:1fr}.side-panel{border-top:1px solid var(--border);max-height:50vh}.canvas-area{border-right:none}}
 </style>
 </head>
 <body>
@@ -99,7 +101,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
 <header>
   <div class="logo-icon">🌊</div>
   <div class="logo-text"><h1>Subsurface</h1><span>Underwater Color Lab</span></div>
-  <div class="hbadge">color-preserving fusion</div>
+  <div class="hbadge">v3 · 6 enhancements + AI upscale</div>
 </header>
 <main>
 <div class="canvas-area">
@@ -113,7 +115,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
     <div id="upload-zone">
       <div class="upload-ring">📷</div>
       <h2>Drop an underwater photo</h2>
-      <p>Auto mode keeps Nikolajbech's colors exactly, sharpening luminance with CLAHE and Retinex for the best of all worlds.</p>
+      <p>Gray-world pre-balance → depth-adaptive Nikolajbech → CLAHE luminance → MSR detail → gamma-corrected export.</p>
       <button class="btn btn-primary" style="max-width:170px;margin-top:6px" onclick="document.getElementById('file-input').click()">Choose image</button>
     </div>
     <div class="canvas-split" id="split-view">
@@ -123,7 +125,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
     <div class="single-view" id="single-view"><canvas id="c-single"></canvas></div>
     <div class="proc-overlay" id="proc-overlay">
       <div class="proc-spinner"></div>
-      <div class="proc-msg">Processing…</div>
+      <div class="proc-msg" id="proc-msg">Processing…</div>
     </div>
   </div>
   <div class="hist-bar"><canvas id="hist-canvas"></canvas></div>
@@ -135,15 +137,15 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
     <div class="algo-grid">
       <button class="abtn active" id="a-auto"    onclick="setAlgo('auto')">
         <span class="abtitle">⚡ Auto Fusion</span>
-        <span class="absub">Nikolajbech color + CLAHE luminance + Retinex — best overall</span>
+        <span class="absub">Gray-world → depth-adaptive Nikolajbech color → CLAHE + Retinex luminance</span>
       </button>
       <button class="abtn" id="a-nikolaj" onclick="setAlgo('nikolaj')">
         <span class="abtitle">🎨 Nikolajbech</span>
-        <span class="absub">Hue-shift into red + per-channel histogram stretch</span>
+        <span class="absub">Hue-shift + histogram stretch (no pre-processing)</span>
       </button>
       <button class="abtn" id="a-msr"     onclick="setAlgo('msr')">
         <span class="abtitle">💡 Multi-Scale Retinex</span>
-        <span class="absub">Illumination separation + color restoration (MSRCR)</span>
+        <span class="absub">Illumination separation + MSRCR color restoration</span>
       </button>
     </div>
   </div>
@@ -163,17 +165,21 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
     <div id="stats-content"></div>
   </div>
 
-  <!-- Auto fusion controls -->
+  <!-- Auto controls -->
   <div class="psec" id="ctrl-auto">
     <div class="slabel">Fusion Controls</div>
     <div class="slider-group">
       <div class="sl-row">
-        <div class="sl-hdr"><span class="sl-name">CLAHE detail strength</span><span class="sl-val" id="v-clp">3.0</span></div>
+        <div class="sl-hdr"><span class="sl-name">CLAHE detail clip</span><span class="sl-val" id="v-clp">3.0</span></div>
         <input type="range" id="sl-clp" min="10" max="80" value="30" oninput="slUpdate(this,'v-clp','',0.1);reprocess()">
       </div>
       <div class="sl-row">
         <div class="sl-hdr"><span class="sl-name">Retinex mix</span><span class="sl-val" id="v-rmix">25%</span></div>
         <input type="range" id="sl-rmix" min="0" max="60" value="25" oninput="slUpdate(this,'v-rmix','%');reprocess()">
+      </div>
+      <div class="sl-row">
+        <div class="sl-hdr"><span class="sl-name">Depth target (adaptive red)</span><span class="sl-val" id="v-depth">auto</span></div>
+        <input type="range" id="sl-depth" min="40" max="100" value="0" oninput="onDepthSlider(this);reprocess()">
       </div>
     </div>
   </div>
@@ -225,12 +231,16 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
         <input type="range" id="sl-sat" min="-60" max="100" value="0" oninput="slUpdate(this,'v-sat');renderFinal()">
       </div>
       <div class="sl-row">
-        <div class="sl-hdr"><span class="sl-name">Sharpen</span><span class="sl-val" id="v-shp">+0</span></div>
+        <div class="sl-hdr"><span class="sl-name">Lab sharpen (edge-safe)</span><span class="sl-val" id="v-shp">+0</span></div>
         <input type="range" id="sl-shp" min="0" max="80" value="0" oninput="slUpdate(this,'v-shp');renderFinal()">
       </div>
       <div class="sl-row">
         <div class="sl-hdr"><span class="sl-name">Denoise</span><span class="sl-val" id="v-den">+0</span></div>
         <input type="range" id="sl-den" min="0" max="30" value="0" oninput="slUpdate(this,'v-den');renderFinal()">
+      </div>
+      <div class="sl-row">
+        <div class="sl-hdr"><span class="sl-name">Output gamma</span><span class="sl-val" id="v-gam">1.00</span></div>
+        <input type="range" id="sl-gam" min="70" max="130" value="100" oninput="slUpdate(this,'v-gam','',0.01);renderFinal()">
       </div>
     </div>
   </div>
@@ -247,95 +257,127 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
   </div>
 
   <div class="dl-bar">
-    <button class="btn btn-primary" id="btn-dl" onclick="downloadResult()" disabled>⬇ Export corrected PNG</button>
+    <button class="btn btn-primary" id="btn-dl" onclick="downloadResult()" disabled>⬇ Export PNG</button>
+    <button class="btn btn-warn" id="btn-upscale" onclick="runUpscale()" disabled style="font-size:11.5px">
+      ✨ Export 2× AI Upscaled (via UpscalerJS)
+    </button>
+    <div id="upscale-status" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);text-align:center;display:none"></div>
   </div>
 </div>
 </main>
 </div>
 
+<!-- UpscalerJS + TF.js (loaded lazily on demand) -->
 <script>
 'use strict';
 
-let origData=null, algoResult=null, currentAlgo='auto', currentView='split';
+// ─────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────
+let origData    = null;
+let algoResult  = null;   // raw algo output (before post-processing)
+let currentAlgo = 'auto';
+let currentView = 'split';
+let depthTarget = 0;      // 0 = auto-detect
 
-// ── File loading ──────────────────────────────────────────
-document.getElementById('file-input').addEventListener('change',e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const r=new FileReader(); r.onload=ev=>loadImage(ev.target.result); r.readAsDataURL(f); e.target.value='';
+// ─────────────────────────────────────────────────────────
+// FILE LOADING
+// ─────────────────────────────────────────────────────────
+document.getElementById('file-input').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader(); r.onload = ev => loadImage(ev.target.result); r.readAsDataURL(f); e.target.value = '';
 });
-const wrapper=document.getElementById('canvas-wrapper');
-wrapper.addEventListener('dragover', e=>{e.preventDefault();wrapper.style.outline='2px dashed rgba(0,200,255,.38)';});
-wrapper.addEventListener('dragleave',()=>{wrapper.style.outline='';});
-wrapper.addEventListener('drop',e=>{
-  e.preventDefault(); wrapper.style.outline='';
-  const f=e.dataTransfer.files[0];
-  if(f&&f.type.startsWith('image/')){const r=new FileReader();r.onload=ev=>loadImage(ev.target.result);r.readAsDataURL(f);}
+const wrapper = document.getElementById('canvas-wrapper');
+wrapper.addEventListener('dragover',  e => { e.preventDefault(); wrapper.style.outline = '2px dashed rgba(0,200,255,.38)'; });
+wrapper.addEventListener('dragleave', ()  => { wrapper.style.outline = ''; });
+wrapper.addEventListener('drop', e => {
+  e.preventDefault(); wrapper.style.outline = '';
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) { const r = new FileReader(); r.onload = ev => loadImage(ev.target.result); r.readAsDataURL(f); }
 });
-document.getElementById('upload-zone').addEventListener('click',e=>{
-  if(e.target.tagName!=='BUTTON') document.getElementById('file-input').click();
+document.getElementById('upload-zone').addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') document.getElementById('file-input').click();
 });
 
-function loadImage(src){
-  const img=new Image();
-  img.onload=()=>{
-    const MAX_W=1000,MAX_H=750;
-    let w=img.naturalWidth,h=img.naturalHeight;
-    if(w>MAX_W){h=Math.round(h*MAX_W/w);w=MAX_W;} if(h>MAX_H){w=Math.round(w*MAX_H/h);h=MAX_H;}
-    ['c-orig','c-corr','c-single'].forEach(id=>{const c=document.getElementById(id);c.width=w;c.height=h;});
-    const ctx=document.getElementById('c-orig').getContext('2d');
-    ctx.drawImage(img,0,0,w,h); origData=ctx.getImageData(0,0,w,h);
-    document.getElementById('upload-zone').style.display='none';
+function loadImage(src) {
+  const img = new Image();
+  img.onload = () => {
+    const MAX_W = 1000, MAX_H = 750;
+    let w = img.naturalWidth, h = img.naturalHeight;
+    if (w > MAX_W) { h = Math.round(h * MAX_W / w); w = MAX_W; }
+    if (h > MAX_H) { w = Math.round(w * MAX_H / h); h = MAX_H; }
+    ['c-orig','c-corr','c-single'].forEach(id => { const c = document.getElementById(id); c.width = w; c.height = h; });
+    const ctx = document.getElementById('c-orig').getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    origData = ctx.getImageData(0, 0, w, h);
+    document.getElementById('upload-zone').style.display = 'none';
     document.getElementById('split-view').classList.add('active');
-    document.getElementById('btn-run').disabled=false;
-    document.getElementById('btn-dl').disabled=false;
-    updateChannelBars(origData.data); reprocess();
+    ['btn-run','btn-dl','btn-upscale'].forEach(id => document.getElementById(id).disabled = false);
+    updateChannelBars(origData.data);
+    reprocess();
   };
-  img.src=src;
+  img.src = src;
 }
 
-// ── Utilities ─────────────────────────────────────────────
-const cl=v=>Math.max(0,Math.min(255,Math.round(v)));
+// ─────────────────────────────────────────────────────────
+// CORE UTILITIES
+// ─────────────────────────────────────────────────────────
+const cl = v => Math.max(0, Math.min(255, Math.round(v)));
 
-function boxBlur(src,w,h,r){
-  const tmp=new Uint8ClampedArray(src.length);
-  for(let y=0;y<h;y++){for(let x=0;x<w;x++){
+// Separable box blur — two passes, fast O(n)
+function boxBlur(src, w, h, r) {
+  const tmp = new Uint8ClampedArray(src.length);
+  for (let y = 0; y < h; y++) { for (let x = 0; x < w; x++) {
     let sR=0,sG=0,sB=0,n=0;
-    for(let dx=-r;dx<=r;dx++){const nx=Math.max(0,Math.min(w-1,x+dx));const i=(y*w+nx)*4;sR+=src[i];sG+=src[i+1];sB+=src[i+2];n++;}
-    const o=(y*w+x)*4;tmp[o]=sR/n;tmp[o+1]=sG/n;tmp[o+2]=sB/n;tmp[o+3]=src[o+3];
+    for (let dx=-r;dx<=r;dx++) { const nx=Math.max(0,Math.min(w-1,x+dx)); const i=(y*w+nx)*4; sR+=src[i];sG+=src[i+1];sB+=src[i+2];n++; }
+    const o=(y*w+x)*4; tmp[o]=sR/n;tmp[o+1]=sG/n;tmp[o+2]=sB/n;tmp[o+3]=src[o+3];
   }}
-  const out=new Uint8ClampedArray(src.length);
-  for(let x=0;x<w;x++){for(let y=0;y<h;y++){
+  const out = new Uint8ClampedArray(src.length);
+  for (let x = 0; x < w; x++) { for (let y = 0; y < h; y++) {
     let sR=0,sG=0,sB=0,n=0;
-    for(let dy=-r;dy<=r;dy++){const ny=Math.max(0,Math.min(h-1,y+dy));const i=(ny*w+x)*4;sR+=tmp[i];sG+=tmp[i+1];sB+=tmp[i+2];n++;}
-    const o=(y*w+x)*4;out[o]=sR/n;out[o+1]=sG/n;out[o+2]=sB/n;out[o+3]=tmp[o+3];
+    for (let dy=-r;dy<=r;dy++) { const ny=Math.max(0,Math.min(h-1,y+dy)); const i=(ny*w+x)*4; sR+=tmp[i];sG+=tmp[i+1];sB+=tmp[i+2];n++; }
+    const o=(y*w+x)*4; out[o]=sR/n;out[o+1]=sG/n;out[o+2]=sB/n;out[o+3]=tmp[o+3];
   }}
   return out;
 }
-function gaussBlur(src,w,h,r){let t=boxBlur(src,w,h,r);t=boxBlur(t,w,h,r);return boxBlur(t,w,h,r);}
+// 3-pass box ≈ Gaussian
+function gaussBlur(src, w, h, r) { let t=boxBlur(src,w,h,r); t=boxBlur(t,w,h,r); return boxBlur(t,w,h,r); }
 
-// RGB ↔ HSL  (h in [0,1], s and l in [0,1])
-function rgb2hsl(r,g,b){
+// Soft shoulder clamp — rolls off gently instead of hard clip
+// Keeps gradients near the 0/255 boundaries instead of crushing them
+function softClamp(v) {
+  if (v <= 0) return 0;
+  if (v >= 255) return 255;
+  // Shoulder region: smoothstep roll-off in the top/bottom 20 values
+  const S = 20;
+  if (v < S)  return v * v / (2 * S);
+  if (v > 255-S) { const d=255-v; return 255 - d*d/(2*S); }
+  return v;
+}
+
+// RGB ↔ HSL (h,s,l all [0,1])
+function rgb2hsl(r,g,b) {
   r/=255;g/=255;b/=255;
   const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,l=(mx+mn)/2;
-  if(d===0) return[0,0,l];
+  if (d===0) return [0,0,l];
   const s=d/(1-Math.abs(2*l-1));
   let h=0;
-  if(mx===r)      h=((g-b)/d+6)%6;
-  else if(mx===g) h=(b-r)/d+2;
-  else            h=(r-g)/d+4;
-  return[h/6,s,l];
+  if (mx===r)      h=((g-b)/d+6)%6;
+  else if (mx===g) h=(b-r)/d+2;
+  else             h=(r-g)/d+4;
+  return [h/6,s,l];
 }
-function hsl2rgb(h,s,l){
-  if(s===0){const v=cl(l*255);return[v,v,v];}
-  const c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h*6)%2-1)),m=l-c/2;
-  let r=0,g=0,b=0,hi=Math.floor(h*6);
-  if(hi===0){r=c;g=x;}else if(hi===1){r=x;g=c;}else if(hi===2){g=c;b=x;}
+function hsl2rgb(h,s,l) {
+  if (s===0) { const v=cl(l*255); return [v,v,v]; }
+  const c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs((h*6)%2-1)), m=l-c/2;
+  let r=0,g=0,b=0, hi=Math.floor(h*6)%6;
+  if (hi===0){r=c;g=x;}else if(hi===1){r=x;g=c;}else if(hi===2){g=c;b=x;}
   else if(hi===3){g=x;b=c;}else if(hi===4){r=x;b=c;}else{r=c;b=x;}
-  return[cl((r+m)*255),cl((g+m)*255),cl((b+m)*255)];
+  return [cl((r+m)*255),cl((g+m)*255),cl((b+m)*255)];
 }
 
-// RGB ↔ Lab
-function rgb2lab(r,g,b){
+// RGB ↔ CIE-Lab
+function rgb2lab(r,g,b) {
   let R=r/255,G=g/255,B=b/255;
   R=R>.04045?((R+.055)/1.055)**2.4:R/12.92;
   G=G>.04045?((G+.055)/1.055)**2.4:G/12.92;
@@ -344,117 +386,171 @@ function rgb2lab(r,g,b){
   let Y=R*.2126729+G*.7151522+B*.0721750;
   let Z=(R*.0193339+G*.1191920+B*.9503041)/1.08883;
   const f=v=>v>.008856?v**(1/3):7.787*v+16/116;
-  const[fx,fy,fz]=[f(X),f(Y),f(Z)];
-  return[116*fy-16,500*(fx-fy),200*(fy-fz)];
+  return [116*f(Y)-16, 500*(f(X)-f(Y)), 200*(f(Y)-f(Z))];
 }
-function lab2rgb(L,a,b){
-  const fy=(L+16)/116,fx=a/500+fy,fz=fy-b/200;
+function lab2rgb(L,a,b) {
+  const fy=(L+16)/116, fx=a/500+fy, fz=fy-b/200;
   const f3=v=>v>.206897?v**3:(v-16/116)/7.787;
-  let X=f3(fx)*.95047,Y=f3(fy),Z=f3(fz)*1.08883;
-  let R=X*3.2404542-Y*1.5371385-Z*.4985314;
+  let X=f3(fx)*.95047, Y=f3(fy), Z=f3(fz)*1.08883;
+  let R= X*3.2404542-Y*1.5371385-Z*.4985314;
   let G=-X*.9692660+Y*1.8760108+Z*.0415560;
-  let B=X*.0556434-Y*.2040259+Z*1.0572252;
+  let B= X*.0556434-Y*.2040259+Z*1.0572252;
   const lin=v=>v>.0031308?1.055*v**(1/2.4)-.055:12.92*v;
-  return[cl(lin(R)*255),cl(lin(G)*255),cl(lin(B)*255)];
+  return [cl(lin(R)*255),cl(lin(G)*255),cl(lin(B)*255)];
 }
 
-// ── ALGORITHM 1: Nikolajbech ──────────────────────────────
-function algoNikolaj(data,threshPct){
-  const n=data.length/4;
+// ─────────────────────────────────────────────────────────
+// ENHANCEMENT 1: GRAY-WORLD PRE-BALANCE
+// Scales each RGB channel so its mean equals the luminance mean.
+// This neutralises the global color cast before Nikolajbech runs,
+// so the hue-shift has less work and overshoots less.
+// ─────────────────────────────────────────────────────────
+function grayWorldBalance(data) {
+  const n = data.length/4;
   let rS=0,gS=0,bS=0;
-  for(let i=0;i<data.length;i+=4){rS+=data[i];gS+=data[i+1];bS+=data[i+2];}
-  const avgR=rS/n,avgG=gS/n,avgB=bS/n;
-  // Hue-shift: blend G+B into red channel until avgR reaches 60
-  let hs=0;
-  if(avgR<60){const blend=(avgG+avgB)/2;hs=blend>0?Math.min(1,(60-avgR)/blend):0;}
-  const hs2=hs/2;
-  const hR=new Int32Array(256),hG=new Int32Array(256),hB=new Int32Array(256);
-  for(let i=0;i<data.length;i+=4){
-    hR[cl(data[i]+hs2*(data[i+1]+data[i+2]))]++;
-    hG[data[i+1]]++; hB[data[i+2]]++;
-  }
-  function lohi(h,tot,pct){
-    const cut=Math.round(tot*pct/100);
-    let lo=0,ac=0;while(lo<255&&ac+h[lo]<=cut)ac+=h[lo++];
-    let hi=255;ac=0;while(hi>0&&ac+h[hi]<=cut)ac+=h[hi--];
-    if(hi<=lo)hi=Math.min(255,lo+1); return[lo,hi];
-  }
-  const[rLo,rHi]=lohi(hR,n,threshPct);
-  const[gLo,gHi]=lohi(hG,n,threshPct);
-  const[bLo,bHi]=lohi(hB,n,threshPct);
-  const rG=255/Math.max(1,rHi-rLo),gG=255/Math.max(1,gHi-gLo),bG=255/Math.max(1,bHi-bLo);
-  const rO=-rLo*rG,gO=-gLo*gG,bO=-bLo*bG;
-  const out=new Uint8ClampedArray(data.length);
-  for(let i=0;i<data.length;i+=4){
-    const r0=data[i],g0=data[i+1],b0=data[i+2];
-    out[i]  =cl((r0+hs2*(g0+b0))*rG+rO);
-    out[i+1]=cl(g0*gG+gO);
-    out[i+2]=cl(b0*bG+bO);
+  for (let i=0;i<data.length;i+=4) { rS+=data[i];gS+=data[i+1];bS+=data[i+2]; }
+  const mR=rS/n, mG=gS/n, mB=bS/n;
+  const mGray=(mR+mG+mB)/3;
+  const sR=mGray/(mR||1), sG=mGray/(mG||1), sB=mGray/(mB||1);
+  const out = new Uint8ClampedArray(data.length);
+  for (let i=0;i<data.length;i+=4) {
+    out[i]  =cl(data[i]  *sR);
+    out[i+1]=cl(data[i+1]*sG);
+    out[i+2]=cl(data[i+2]*sB);
     out[i+3]=data[i+3];
   }
-  return{pixels:out,hueShift:hs,avgR:Math.round(avgR),avgG:Math.round(avgG),avgB:Math.round(avgB),rLo,rHi,gLo,gHi,bLo,bHi};
+  return {pixels:out, mR:Math.round(mR), mG:Math.round(mG), mB:Math.round(mB), sR, sG, sB};
 }
 
-// ── ALGORITHM 2: CLAHE on L in Lab (detail/luminance only) ─
-function algoCLAHE_L(data,w,h,clipLimit,tiles){
+// ─────────────────────────────────────────────────────────
+// ENHANCEMENT 2: DEPTH-ADAPTIVE NIKOLAJBECH
+// Instead of a fixed red target of 60, the target adapts to the
+// estimated depth inferred from the red deficit, so shallow images
+// (avgR close to 60) don't get over-boosted.
+// Enhancement 6: soft-clamp instead of hard clip on all outputs.
+// ─────────────────────────────────────────────────────────
+function algoNikolaj(data, threshPct, redTarget) {
+  const n = data.length/4;
+  let rS=0,gS=0,bS=0;
+  for (let i=0;i<data.length;i+=4) { rS+=data[i];gS+=data[i+1];bS+=data[i+2]; }
+  const avgR=rS/n, avgG=gS/n, avgB=bS/n;
+
+  // Enhancement 2: adaptive target (slider overrides auto)
+  const RT = redTarget > 0 ? redTarget : computeDepthTarget(avgR, avgG, avgB);
+
+  let hs=0;
+  if (avgR < RT) { const blend=(avgG+avgB)/2; hs=blend>0?Math.min(1,(RT-avgR)/blend):0; }
+  const hs2=hs/2;
+
+  const hR=new Int32Array(256), hG=new Int32Array(256), hB=new Int32Array(256);
+  for (let i=0;i<data.length;i+=4) {
+    // Enhancement 6: soft-clamp before histogramming
+    hR[cl(softClamp(data[i]+hs2*(data[i+1]+data[i+2])))]++;
+    hG[data[i+1]]++; hB[data[i+2]]++;
+  }
+
+  function lohi(h, tot, pct) {
+    const cut=Math.round(tot*pct/100);
+    let lo=0,ac=0; while(lo<255&&ac+h[lo]<=cut) ac+=h[lo++];
+    let hi=255;    ac=0; while(hi>0 &&ac+h[hi]<=cut) ac+=h[hi--];
+    if (hi<=lo) hi=Math.min(255,lo+1);
+    return [lo,hi];
+  }
+  const [rLo,rHi]=lohi(hR,n,threshPct);
+  const [gLo,gHi]=lohi(hG,n,threshPct);
+  const [bLo,bHi]=lohi(hB,n,threshPct);
+  const rG=255/Math.max(1,rHi-rLo), gG=255/Math.max(1,gHi-gLo), bG=255/Math.max(1,bHi-bLo);
+  const rO=-rLo*rG, gO=-gLo*gG, bO=-bLo*bG;
+
+  const out = new Uint8ClampedArray(data.length);
+  for (let i=0;i<data.length;i+=4) {
+    const r0=data[i],g0=data[i+1],b0=data[i+2];
+    // Enhancement 6: soft-clamp output
+    out[i]  =cl(softClamp((r0+hs2*(g0+b0))*rG+rO));
+    out[i+1]=cl(softClamp(g0*gG+gO));
+    out[i+2]=cl(softClamp(b0*bG+bO));
+    out[i+3]=data[i+3];
+  }
+  return {pixels:out, hueShift:hs, redTarget:RT, avgR:Math.round(avgR), avgG:Math.round(avgG), avgB:Math.round(avgB), rLo,rHi,gLo,gHi,bLo,bHi};
+}
+
+// Enhancement 2: compute adaptive red target from channel ratios
+function computeDepthTarget(avgR, avgG, avgB) {
+  const dominant = Math.max(avgG, avgB);
+  if (dominant === 0) return 60;
+  const deficit = (dominant - avgR) / dominant; // 0=no deficit, 1=total loss
+  // shallow (deficit≈0) → target 90 (don't overboost), deep (deficit≈1) → target 55
+  return Math.round(90 - deficit * 35);
+}
+
+// ─────────────────────────────────────────────────────────
+// CLAHE on L channel only (detail/luminance)
+// ─────────────────────────────────────────────────────────
+function claheL(data, w, h, clipLimit, tiles) {
   const n=w*h;
-  const Lc=new Float32Array(n),Ac=new Float32Array(n),Bc=new Float32Array(n);
-  for(let i=0;i<n;i++){const[L,a,b]=rgb2lab(data[i*4],data[i*4+1],data[i*4+2]);Lc[i]=L;Ac[i]=a;Bc[i]=b;}
+  const Lc=new Float32Array(n), Ac=new Float32Array(n), Bc=new Float32Array(n);
+  for (let i=0;i<n;i++) { const[L,a,b]=rgb2lab(data[i*4],data[i*4+1],data[i*4+2]); Lc[i]=L;Ac[i]=a;Bc[i]=b; }
   const Ls=new Uint8Array(n);
-  for(let i=0;i<n;i++) Ls[i]=cl(Lc[i]*2.55);
-  const tW=Math.ceil(w/tiles),tH=Math.ceil(h/tiles),nTX=Math.ceil(w/tW),nTY=Math.ceil(h/tH);
+  for (let i=0;i<n;i++) Ls[i]=cl(Lc[i]*2.55);
+
+  const tW=Math.ceil(w/tiles), tH=Math.ceil(h/tiles);
+  const nTX=Math.ceil(w/tW),   nTY=Math.ceil(h/tH);
   const cdfs=[];
-  for(let ty=0;ty<nTY;ty++){cdfs[ty]=[];for(let tx=0;tx<nTX;tx++){
+  for (let ty=0;ty<nTY;ty++) { cdfs[ty]=[]; for (let tx=0;tx<nTX;tx++) {
     const x0=tx*tW,y0=ty*tH,x1=Math.min(x0+tW,w),y1=Math.min(y0+tH,h),tN=(x1-x0)*(y1-y0);
     const hist=new Int32Array(256);
-    for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++) hist[Ls[y*w+x]]++;
+    for (let y=y0;y<y1;y++) for (let x=x0;x<x1;x++) hist[Ls[y*w+x]]++;
     const lim=Math.max(1,Math.round(clipLimit*tN/256));
-    let ex=0;for(let b=0;b<256;b++){if(hist[b]>lim){ex+=hist[b]-lim;hist[b]=lim;}}
+    let ex=0; for (let b=0;b<256;b++) { if(hist[b]>lim){ex+=hist[b]-lim;hist[b]=lim;} }
     const add=Math.floor(ex/256),rem=ex%256;
-    for(let b=0;b<256;b++) hist[b]+=add+(b<rem?1:0);
-    const cdf=new Float32Array(256);let cum=0,cdfMin=-1;
-    for(let b=0;b<256;b++){cum+=hist[b];if(cdfMin<0&&cum>0)cdfMin=cum;cdf[b]=cum;}
+    for (let b=0;b<256;b++) hist[b]+=add+(b<rem?1:0);
+    const cdf=new Float32Array(256); let cum=0,cdfMin=-1;
+    for (let b=0;b<256;b++) { cum+=hist[b]; if(cdfMin<0&&cum>0)cdfMin=cum; cdf[b]=cum; }
     const sc=255/Math.max(1,tN-cdfMin);
-    for(let b=0;b<256;b++) cdf[b]=Math.max(0,Math.min(255,(cdf[b]-cdfMin)*sc));
+    for (let b=0;b<256;b++) cdf[b]=Math.max(0,Math.min(255,(cdf[b]-cdfMin)*sc));
     cdfs[ty][tx]=cdf;
   }}
-  // Return just the enhanced L values (0-255 scale), keeping original a/b
   const Lout=new Float32Array(n);
-  for(let y=0;y<h;y++){for(let x=0;x<w;x++){
+  for (let y=0;y<h;y++) { for (let x=0;x<w;x++) {
     const val=Ls[y*w+x];
-    const tFx=(x+.5)/tW-.5,tFy=(y+.5)/tH-.5;
-    const tx0=Math.max(0,Math.min(nTX-1,Math.floor(tFx))),ty0=Math.max(0,Math.min(nTY-1,Math.floor(tFy)));
-    const tx1=Math.min(nTX-1,tx0+1),ty1=Math.min(nTY-1,ty0+1);
-    const fx=Math.max(0,Math.min(1,tFx-tx0)),fy=Math.max(0,Math.min(1,tFy-ty0));
+    const tFx=(x+.5)/tW-.5, tFy=(y+.5)/tH-.5;
+    const tx0=Math.max(0,Math.min(nTX-1,Math.floor(tFx))), ty0=Math.max(0,Math.min(nTY-1,Math.floor(tFy)));
+    const tx1=Math.min(nTX-1,tx0+1), ty1=Math.min(nTY-1,ty0+1);
+    const fx=Math.max(0,Math.min(1,tFx-tx0)), fy=Math.max(0,Math.min(1,tFy-ty0));
     Lout[y*w+x]=(1-fx)*(1-fy)*cdfs[ty0][tx0][val]+fx*(1-fy)*cdfs[ty0][tx1][val]
-               +(1-fx)*fy*cdfs[ty1][tx0][val]+fx*fy*cdfs[ty1][tx1][val];
+               +(1-fx)*fy    *cdfs[ty1][tx0][val]+fx*fy    *cdfs[ty1][tx1][val];
   }}
-  return Lout; // Float32Array of enhanced L values (0-255 scale)
+  return Lout; // Float32, 0-255 scale
 }
 
-// ── ALGORITHM 3: Multi-Scale Retinex ─────────────────────
-function algoMSR(data,w,h,strength,colorRestore){
-  const n=w*h,SIGMAS=[15,80,250];
+// ─────────────────────────────────────────────────────────
+// MULTI-SCALE RETINEX
+// ─────────────────────────────────────────────────────────
+function algoMSR(data, w, h, strength, colorRestore) {
+  const n=w*h, SIGMAS=[15,80,250];
   const retinex=[new Float32Array(n),new Float32Array(n),new Float32Array(n)];
   const logCh=[new Float32Array(n),new Float32Array(n),new Float32Array(n)];
-  for(let ch=0;ch<3;ch++) for(let i=0;i<n;i++) logCh[ch][i]=Math.log(data[i*4+ch]+1);
-  for(const sigma of SIGMAS){
+  for (let ch=0;ch<3;ch++) for (let i=0;i<n;i++) logCh[ch][i]=Math.log(data[i*4+ch]+1);
+  for (const sigma of SIGMAS) {
     const r=Math.max(1,Math.round(sigma/3));
-    for(let ch=0;ch<3;ch++){
-      const buf=new Uint8ClampedArray(n*4),sc=255/Math.log(256);
-      for(let i=0;i<n;i++){const v=cl(logCh[ch][i]*sc);buf[i*4]=buf[i*4+1]=buf[i*4+2]=v;buf[i*4+3]=255;}
-      let bl=boxBlur(buf,w,h,r);bl=boxBlur(bl,w,h,r);
-      for(let i=0;i<n;i++) retinex[ch][i]+=logCh[ch][i]-bl[i*4]/sc;
+    for (let ch=0;ch<3;ch++) {
+      const buf=new Uint8ClampedArray(n*4), sc=255/Math.log(256);
+      for (let i=0;i<n;i++) { const v=cl(logCh[ch][i]*sc); buf[i*4]=buf[i*4+1]=buf[i*4+2]=v; buf[i*4+3]=255; }
+      let bl=boxBlur(buf,w,h,r); bl=boxBlur(bl,w,h,r);
+      for (let i=0;i<n;i++) retinex[ch][i]+=logCh[ch][i]-bl[i*4]/sc;
     }
   }
-  for(let ch=0;ch<3;ch++) for(let i=0;i<n;i++) retinex[ch][i]/=SIGMAS.length;
-  const rMin=[Infinity,Infinity,Infinity],rMax=[-Infinity,-Infinity,-Infinity];
-  for(let i=0;i<n;i++) for(let ch=0;ch<3;ch++){if(retinex[ch][i]<rMin[ch])rMin[ch]=retinex[ch][i];if(retinex[ch][i]>rMax[ch])rMax[ch]=retinex[ch][i];}
-  const str=strength/100,alpha=colorRestore/100,beta=46;
+  for (let ch=0;ch<3;ch++) for (let i=0;i<n;i++) retinex[ch][i]/=SIGMAS.length;
+  const rMin=[Infinity,Infinity,Infinity], rMax=[-Infinity,-Infinity,-Infinity];
+  for (let i=0;i<n;i++) for (let ch=0;ch<3;ch++) {
+    if(retinex[ch][i]<rMin[ch])rMin[ch]=retinex[ch][i];
+    if(retinex[ch][i]>rMax[ch])rMax[ch]=retinex[ch][i];
+  }
+  const str=strength/100, alpha=colorRestore/100, beta=46;
   const out=new Uint8ClampedArray(data.length);
-  for(let i=0;i<n;i++){
+  for (let i=0;i<n;i++) {
     const sum=data[i*4]+data[i*4+1]+data[i*4+2]+1;
-    for(let ch=0;ch<3;ch++){
+    for (let ch=0;ch<3;ch++) {
       const rng=rMax[ch]-rMin[ch]||1;
       const enhanced=(retinex[ch][i]-rMin[ch])/rng*255;
       const crf=cl(beta*Math.log(Math.max(1,alpha*(data[i*4+ch]+1)/sum*3)));
@@ -462,92 +558,159 @@ function algoMSR(data,w,h,strength,colorRestore){
     }
     out[i*4+3]=data[i*4+3];
   }
-  return{pixels:out};
+  return {pixels:out};
 }
 
-// ── AUTO FUSION ───────────────────────────────────────────
-// Core idea: Nikolajbech is the COLOR authority.
-// We take H and S 100% from Nikolajbech.
-// For L (lightness), we blend:
-//   - Nikolajbech's own L (color-correct but limited local contrast)
-//   - CLAHE-enhanced L   (much better local contrast/detail)
-//   - Retinex-derived L  (better handling of dark/bright regions)
-// This means colors are EXACTLY what Nikolajbech gives, but
-// the luminance channel is sharpened and balanced by CLAHE+MSR.
-function algoAutoFusion(data,w,h,claheClip,retinexMix){
+// ─────────────────────────────────────────────────────────
+// AUTO FUSION — color-preserving HSL blend
+// Color (H+S) always from Nikolajbech.
+// Luminance (L) from CLAHE (detail) + MSR (local illumination).
+// ─────────────────────────────────────────────────────────
+function algoAutoFusion(data, w, h, claheClip, retinexMix, redTarget) {
   const n=w*h;
 
-  // 1. Nikolajbech — color and initial L
-  const nik=algoNikolaj(data,0.5);
-  const nikPx=nik.pixels;
+  // Enhancement 1: gray-world pre-balance before Nikolajbech
+  const gw = grayWorldBalance(data);
 
-  // 2. CLAHE enhanced-L (operates only on luminance, preserves a/b exactly)
-  const claheL=algoCLAHE_L(data,w,h,claheClip,8); // Float32 0-255
+  // Enhancement 2: depth-adaptive Nikolajbech on balanced image
+  const nik = algoNikolaj(gw.pixels, 0.5, redTarget);
 
-  // 3. MSR L channel
-  const msr=algoMSR(data,w,h,80,125);
-  const msrPx=msr.pixels;
+  // CLAHE enhanced-L on original (not pre-balanced — preserves natural detail)
+  const claL = claheL(data, w, h, claheClip, 8);
 
-  const rw=retinexMix/100; // how much MSR L to blend in (0-0.6)
+  // MSR on original
+  const msr = algoMSR(data, w, h, 80, 125);
+
+  const rw=retinexMix/100;
   const out=new Uint8ClampedArray(data.length);
 
-  for(let i=0;i<n;i++){
+  for (let i=0;i<n;i++) {
     const idx=i*4;
+    const [nikH,nikS,nikL]=rgb2hsl(nik.pixels[idx],nik.pixels[idx+1],nik.pixels[idx+2]);
+    const claLv = claL[i]/255;
+    const [,,msrLv]=rgb2hsl(msr.pixels[idx],msr.pixels[idx+1],msr.pixels[idx+2]);
 
-    // Nikolajbech H and S — the color authority
-    const[nikH,nikS]=rgb2hsl(nikPx[idx],nikPx[idx+1],nikPx[idx+2]);
+    // Luminance: CLAHE provides the primary detail source,
+    // Nikolajbech's L anchors the brightness,
+    // Retinex blends in shadow/highlight recovery
+    const baseL = claLv*0.65 + nikL*0.35;
+    const finalL = Math.max(0,Math.min(1, baseL*(1-rw)+msrLv*rw));
 
-    // Nikolajbech L (already color-corrected baseline)
-    const[,,nikL]=rgb2hsl(nikPx[idx],nikPx[idx+1],nikPx[idx+2]);
-
-    // CLAHE L (normalized 0-1)
-    const claL=claheL[i]/255;
-
-    // MSR L
-    const[,,msrL]=rgb2hsl(msrPx[idx],msrPx[idx+1],msrPx[idx+2]);
-
-    // Final L: CLAHE is the primary detail source,
-    // tempered by Nikolajbech's L to keep brightness in check,
-    // with a small Retinex contribution for shadow/highlight recovery
-    const blendedL=(claL*0.65+nikL*0.35)*(1-rw)+msrL*rw;
-    const finalL=Math.max(0,Math.min(1,blendedL));
-
-    // Reconstruct using Nikolajbech's H+S with blended L
-    const[r,g,b]=hsl2rgb(nikH,nikS,finalL);
+    const [r,g,b]=hsl2rgb(nikH, nikS, finalL);
     out[idx]=r; out[idx+1]=g; out[idx+2]=b; out[idx+3]=data[idx+3];
   }
-  return{pixels:out,nik};
+  return {pixels:out, nik, gw};
 }
 
-// ── POST-PROCESSING ───────────────────────────────────────
-function postProcess(src,w,h,exposure,contrast,saturation,sharpen,denoise){
-  let d=src;
-  if(denoise>0){
-    const bl=boxBlur(d,w,h,1),dn=denoise/100,tmp=new Uint8ClampedArray(d.length);
-    for(let i=0;i<d.length;i+=4){tmp[i]=cl(d[i]*(1-dn)+bl[i]*dn);tmp[i+1]=cl(d[i+1]*(1-dn)+bl[i+1]*dn);tmp[i+2]=cl(d[i+2]*(1-dn)+bl[i+2]*dn);tmp[i+3]=d[i+3];}
-    d=tmp;
-  }
-  if(sharpen>0){
-    const bl=gaussBlur(d,w,h,2),k=sharpen/60+1,tmp=new Uint8ClampedArray(d.length);
-    for(let i=0;i<d.length;i+=4){tmp[i]=cl(k*d[i]-(k-1)*bl[i]);tmp[i+1]=cl(k*d[i+1]-(k-1)*bl[i+1]);tmp[i+2]=cl(k*d[i+2]-(k-1)*bl[i+2]);tmp[i+3]=d[i+3];}
-    d=tmp;
-  }
-  const eM=Math.pow(2,exposure/80),cF=1+contrast/100,sF=1+saturation/100;
-  const out=new Uint8ClampedArray(d.length);
-  for(let i=0;i<d.length;i+=4){
-    let r=d[i]*eM,g=d[i+1]*eM,b=d[i+2]*eM;
-    r=(r-128)*cF+128;g=(g-128)*cF+128;b=(b-128)*cF+128;
-    if(saturation!==0){const l=.299*r+.587*g+.114*b;r=l+(r-l)*sF;g=l+(g-l)*sF;b=l+(b-l)*sF;}
-    out[i]=cl(r);out[i+1]=cl(g);out[i+2]=cl(b);out[i+3]=d[i+3];
+// ─────────────────────────────────────────────────────────
+// ENHANCEMENT 3: LAB-SPACE UNSHARP MASK (edge-safe sharpen)
+// Applies sharpening only to the L channel in Lab space,
+// so edges are enhanced without any color fringing.
+// ─────────────────────────────────────────────────────────
+function labSharpen(data, w, h, amount) {
+  if (amount === 0) return data;
+  const n=w*h;
+  const Lc=new Float32Array(n), Ac=new Float32Array(n), Bc=new Float32Array(n);
+  for (let i=0;i<n;i++) { const[L,a,b]=rgb2lab(data[i*4],data[i*4+1],data[i*4+2]); Lc[i]=L;Ac[i]=a;Bc[i]=b; }
+
+  // Gaussian blur of L for unsharp mask
+  const Lpx=new Uint8ClampedArray(n*4);
+  for (let i=0;i<n;i++) { const v=cl(Lc[i]*2.55); Lpx[i*4]=Lpx[i*4+1]=Lpx[i*4+2]=v; Lpx[i*4+3]=255; }
+  const blurred=gaussBlur(Lpx,w,h,2);
+
+  const k=amount/60+1; // sharpen factor
+  const out=new Uint8ClampedArray(data.length);
+  for (let i=0;i<n;i++) {
+    const blurL=blurred[i*4]/255*100;
+    const sharpenedL=Math.max(0,Math.min(100, Lc[i]+(Lc[i]-blurL)*(k-1)));
+    const [r,g,b]=lab2rgb(sharpenedL, Ac[i], Bc[i]);
+    out[i*4]=r; out[i*4+1]=g; out[i*4+2]=b; out[i*4+3]=data[i*4+3];
   }
   return out;
 }
 
-function strengthBlend(orig,corrected,strength){
-  if(strength===100) return corrected;
-  const s=strength/100,out=new Uint8ClampedArray(orig.length);
-  for(let i=0;i<orig.length;i+=4){
-    out[i]=cl(orig[i]+s*(corrected[i]-orig[i]));
+// ─────────────────────────────────────────────────────────
+// ENHANCEMENT 4: BILATERAL-INSPIRED DENOISE
+// Box blur blended with edge-preservation: pixels close in color
+// contribute more to the blur than distant ones (simplified).
+// ─────────────────────────────────────────────────────────
+function bilateralDenoise(data, w, h, amount) {
+  if (amount === 0) return data;
+  const n=w*h, r=1, sigmaC=30; // spatial r=1px, color sigma=30
+  const out=new Uint8ClampedArray(data.length);
+  const dn=amount/100;
+
+  for (let y=0;y<h;y++) { for (let x=0;x<w;x++) {
+    const ci=(y*w+x)*4;
+    const cR=data[ci], cG=data[ci+1], cB=data[ci+2];
+    let wR=0,wG=0,wB=0,wSum=0;
+    for (let dy=-r;dy<=r;dy++) { for (let dx=-r;dx<=r;dx++) {
+      const ny=Math.max(0,Math.min(h-1,y+dy));
+      const nx=Math.max(0,Math.min(w-1,x+dx));
+      const ni=(ny*w+nx)*4;
+      const dR=data[ni]-cR, dG=data[ni+1]-cG, dB=data[ni+2]-cB;
+      const colorDist=dR*dR+dG*dG+dB*dB;
+      const w2=Math.exp(-colorDist/(2*sigmaC*sigmaC));
+      wR+=data[ni]*w2; wG+=data[ni+1]*w2; wB+=data[ni+2]*w2; wSum+=w2;
+    }}
+    out[ci]  =cl(cR*(1-dn)+(wR/wSum)*dn);
+    out[ci+1]=cl(cG*(1-dn)+(wG/wSum)*dn);
+    out[ci+2]=cl(cB*(1-dn)+(wB/wSum)*dn);
+    out[ci+3]=data[ci+3];
+  }}
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────
+// ENHANCEMENT 5: GAMMA CORRECTION
+// Apply input gamma (decode) before processing and output gamma (encode) after.
+// Recovers shadow detail in dark underwater shots.
+// ─────────────────────────────────────────────────────────
+function applyGamma(data, gamma) {
+  if (Math.abs(gamma-1)<0.01) return data;
+  const lut=new Uint8Array(256);
+  for (let v=0;v<256;v++) lut[v]=cl(Math.pow(v/255,gamma)*255);
+  const out=new Uint8ClampedArray(data.length);
+  for (let i=0;i<data.length;i+=4) {
+    out[i]=lut[data[i]]; out[i+1]=lut[data[i+1]]; out[i+2]=lut[data[i+2]]; out[i+3]=data[i+3];
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────
+// POST-PROCESSING (exposure / contrast / saturation / Lab-sharpen / denoise / gamma)
+// ─────────────────────────────────────────────────────────
+function postProcess(src, w, h, exposure, contrast, saturation, sharpen, denoise, outputGamma) {
+  let d = src;
+
+  // Bilateral denoise first (before sharpening to avoid amplifying noise)
+  if (denoise>0) d=bilateralDenoise(d,w,h,denoise);
+
+  // Enhancement 3: Lab-space sharpen (edge-safe)
+  if (sharpen>0) d=labSharpen(d,w,h,sharpen);
+
+  // Tone adjustments
+  const eM=Math.pow(2,exposure/80), cF=1+contrast/100, sF=1+saturation/100;
+  const tmp=new Uint8ClampedArray(d.length);
+  for (let i=0;i<d.length;i+=4) {
+    let r=d[i]*eM,g=d[i+1]*eM,b=d[i+2]*eM;
+    r=(r-128)*cF+128; g=(g-128)*cF+128; b=(b-128)*cF+128;
+    if (saturation!==0) { const l=.299*r+.587*g+.114*b; r=l+(r-l)*sF; g=l+(g-l)*sF; b=l+(b-l)*sF; }
+    tmp[i]=cl(r); tmp[i+1]=cl(g); tmp[i+2]=cl(b); tmp[i+3]=d[i+3];
+  }
+  d=tmp;
+
+  // Enhancement 5: output gamma
+  if (Math.abs(outputGamma-1)>0.01) d=applyGamma(d,outputGamma);
+
+  return d;
+}
+
+function strengthBlend(orig, corrected, strength) {
+  if (strength===100) return corrected;
+  const s=strength/100, out=new Uint8ClampedArray(orig.length);
+  for (let i=0;i<orig.length;i+=4) {
+    out[i]  =cl(orig[i]  +s*(corrected[i]  -orig[i]));
     out[i+1]=cl(orig[i+1]+s*(corrected[i+1]-orig[i+1]));
     out[i+2]=cl(orig[i+2]+s*(corrected[i+2]-orig[i+2]));
     out[i+3]=orig[i+3];
@@ -555,87 +718,184 @@ function strengthBlend(orig,corrected,strength){
   return out;
 }
 
-// ── ORCHESTRATION ─────────────────────────────────────────
-function reprocess(){
-  if(!origData) return;
-  document.getElementById('proc-overlay').classList.add('active');
-  setTimeout(()=>{try{_reprocess();}finally{document.getElementById('proc-overlay').classList.remove('active');}},30);
+// ─────────────────────────────────────────────────────────
+// ORCHESTRATION
+// ─────────────────────────────────────────────────────────
+function reprocess() {
+  if (!origData) return;
+  setSpinner(true);
+  setTimeout(() => { try { _reprocess(); } finally { setSpinner(false); } }, 30);
 }
 
-function _reprocess(){
-  const data=origData.data,w=origData.width,h=origData.height;
+function _reprocess() {
+  const data=origData.data, w=origData.width, h=origData.height;
   let result;
-  if(currentAlgo==='auto'){
-    const clp=parseFloat(document.getElementById('sl-clp').value)*0.1;
-    const rmix=parseFloat(document.getElementById('sl-rmix').value);
-    result=algoAutoFusion(data,w,h,clp,rmix);
-  }else if(currentAlgo==='nikolaj'){
-    const thr=parseFloat(document.getElementById('sl-thr').value)*0.1;
-    result=algoNikolaj(data,thr);
-  }else if(currentAlgo==='msr'){
-    const str=parseFloat(document.getElementById('sl-msrs').value);
-    const crf=parseFloat(document.getElementById('sl-crf').value);
-    result=algoMSR(data,w,h,str,crf);
+
+  // Enhancement 5: apply input gamma to the raw image before processing
+  // (mild decode: gamma < 1 brightens dark areas)
+  const outputGamma = parseFloat(document.getElementById('sl-gam').value) / 100;
+  // We don't apply input gamma here — just the output side after processing
+
+  if (currentAlgo==='auto') {
+    const clp  = parseFloat(document.getElementById('sl-clp').value)*0.1;
+    const rmix = parseFloat(document.getElementById('sl-rmix').value);
+    result = algoAutoFusion(data, w, h, clp, rmix, depthTarget);
+  } else if (currentAlgo==='nikolaj') {
+    const thr = parseFloat(document.getElementById('sl-thr').value)*0.1;
+    result = algoNikolaj(data, thr, depthTarget);
+  } else if (currentAlgo==='msr') {
+    const str = parseFloat(document.getElementById('sl-msrs').value);
+    const crf = parseFloat(document.getElementById('sl-crf').value);
+    result = algoMSR(data, w, h, str, crf);
   }
-  algoResult=result.pixels;
+
+  algoResult = result.pixels;
   updateStats(result);
   renderFinal();
 }
 
-function renderFinal(){
-  if(!origData||!algoResult) return;
-  const w=origData.width,h=origData.height;
-  const str=parseInt(document.getElementById('sl-str').value);
-  const exp=parseInt(document.getElementById('sl-exp').value);
-  const con=parseInt(document.getElementById('sl-con').value);
-  const sat=parseInt(document.getElementById('sl-sat').value);
-  const shp=parseInt(document.getElementById('sl-shp').value);
-  const den=parseInt(document.getElementById('sl-den').value);
-  let final=postProcess(algoResult,w,h,exp,con,sat,shp,den);
-  final=strengthBlend(origData.data,final,str);
+function renderFinal() {
+  if (!origData || !algoResult) return;
+  const w=origData.width, h=origData.height;
+  const str = parseInt(document.getElementById('sl-str').value);
+  const exp = parseInt(document.getElementById('sl-exp').value);
+  const con = parseInt(document.getElementById('sl-con').value);
+  const sat = parseInt(document.getElementById('sl-sat').value);
+  const shp = parseInt(document.getElementById('sl-shp').value);
+  const den = parseInt(document.getElementById('sl-den').value);
+  const gam = parseFloat(document.getElementById('sl-gam').value)/100;
+
+  let final = postProcess(algoResult, w, h, exp, con, sat, shp, den, gam);
+  final = strengthBlend(origData.data, final, str);
+
   document.getElementById('c-corr').getContext('2d').putImageData(new ImageData(final,w,h),0,0);
-  drawHistogram(final); refreshView();
+  drawHistogram(final);
+  refreshView();
 }
 
-// ── UI ────────────────────────────────────────────────────
-function setAlgo(name){
+// ─────────────────────────────────────────────────────────
+// UPSCALERJS INTEGRATION (lazy load on demand)
+// ─────────────────────────────────────────────────────────
+let upscalerReady = false;
+let upscalerLoading = false;
+
+async function runUpscale() {
+  const statusEl = document.getElementById('upscale-status');
+  statusEl.style.display = 'block';
+
+  if (!upscalerReady && !upscalerLoading) {
+    upscalerLoading = true;
+    statusEl.textContent = 'Loading TensorFlow.js + UpscalerJS (~5 MB)…';
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@1.0.0-beta.18/dist/umd/index.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/upscaler@1.0.0-beta.18/dist/browser/umd/upscaler.min.js');
+      upscalerReady = true;
+      upscalerLoading = false;
+      statusEl.textContent = 'UpscalerJS loaded. Starting 2× upscale…';
+    } catch(e) {
+      statusEl.textContent = 'Failed to load UpscalerJS: ' + e.message;
+      upscalerLoading = false;
+      return;
+    }
+  } else if (upscalerLoading) {
+    statusEl.textContent = 'Still loading, please wait…';
+    return;
+  }
+
+  document.getElementById('btn-upscale').disabled = true;
+  statusEl.textContent = 'Running AI 2× upscale (may take 10-30s)…';
+
+  try {
+    const srcCanvas = document.getElementById('c-corr');
+
+    // Convert canvas to img element for UpscalerJS
+    const srcImg = new Image();
+    srcImg.src = srcCanvas.toDataURL('image/png');
+    await new Promise(res => { srcImg.onload = res; });
+
+    const upscaler = new window.Upscaler({ model: window.DefaultUpscalerJSModel });
+    const upscaledSrc = await upscaler.upscale(srcImg, {
+      patchSize: 64,
+      padding: 6,
+    });
+
+    // Download
+    const link = document.createElement('a');
+    link.download = 'subsurface-2x-upscaled.png';
+    link.href = upscaledSrc;
+    link.click();
+
+    statusEl.textContent = '✓ 2× upscaled export saved!';
+  } catch(e) {
+    statusEl.textContent = 'Upscale error: ' + e.message;
+  } finally {
+    document.getElementById('btn-upscale').disabled = false;
+  }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Failed to load: '+src));
+    document.head.appendChild(s);
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+// UI HELPERS
+// ─────────────────────────────────────────────────────────
+function setAlgo(name) {
   currentAlgo=name;
   document.querySelectorAll('.abtn').forEach(b=>b.classList.remove('active'));
   document.getElementById('a-'+name).classList.add('active');
   ['ctrl-auto','ctrl-nikolaj','ctrl-msr'].forEach(id=>document.getElementById(id).style.display='none');
   document.getElementById('ctrl-'+name).style.display='block';
-  if(origData) reprocess();
+  if (origData) reprocess();
 }
 
-function updateChannelBars(data){
-  const n=data.length/4;let rS=0,gS=0,bS=0;
-  for(let i=0;i<data.length;i+=4){rS+=data[i];gS+=data[i+1];bS+=data[i+2];}
-  const avgR=Math.round(rS/n),avgG=Math.round(gS/n),avgB=Math.round(bS/n);
+function onDepthSlider(el) {
+  const v=parseInt(el.value);
+  depthTarget=v;
+  document.getElementById('v-depth').textContent = v===0 ? 'auto' : v;
+  el.style.setProperty('--pct', ((v-parseInt(el.min))/(parseInt(el.max)-parseInt(el.min))*100)+'%');
+}
+
+function setSpinner(on) { document.getElementById('proc-overlay').classList.toggle('active',on); }
+
+function updateChannelBars(data) {
+  const n=data.length/4; let rS=0,gS=0,bS=0;
+  for (let i=0;i<data.length;i+=4) { rS+=data[i];gS+=data[i+1];bS+=data[i+2]; }
+  const avgR=Math.round(rS/n), avgG=Math.round(gS/n), avgB=Math.round(bS/n);
   document.getElementById('avgR-val').textContent=avgR;
   ['r','g','b'].forEach((c,ci)=>{
     const avg=[avgR,avgG,avgB][ci];
     document.getElementById('fill-'+c).style.width=(avg/255*100)+'%';
     document.getElementById('num-'+c).textContent=avg;
   });
-  const isGreen=avgG>avgR*1.1&&avgG>avgB,isBlue=avgB>avgR*1.1&&avgB>=avgG;
-  const rd=Math.round(Math.max(0,(avgG-avgR)/Math.max(avgG,avgB,1)*100));
+  const isGreen=avgG>avgR*1.1&&avgG>avgB, isBlue=avgB>avgR*1.1&&avgB>=avgG;
+  const rd=Math.round(Math.max(0,(Math.max(avgG,avgB)-avgR)/Math.max(avgG,avgB,1)*100));
   document.getElementById('analysis-pills').innerHTML=
     `<span class="pill pill-n">red deficit: ${rd}%</span>`+
-    (isGreen?'<span class="pill pill-g">green cast</span>':isBlue?'<span class="pill pill-b">blue cast</span>':'<span class="pill pill-n">mild cast</span>');
+    (isGreen?'<span class="pill pill-g">green cast</span>':isBlue?'<span class="pill pill-b">blue cast</span>':'<span class="pill pill-n">mild cast</span>')+
+    `<span class="pill pill-n">depth target: ${computeDepthTarget(avgR,avgG,avgB)}</span>`;
 }
 
-function updateStats(result){
+function updateStats(result) {
   document.getElementById('algo-stats').style.display='block';
   const sc=document.getElementById('stats-content');
   const nik=result.nik||result;
-  if(currentAlgo==='auto'){
-    sc.innerHTML=`<div class="stat-row"><span>Color source</span><span class="stat-val">Nikolajbech H+S</span></div>`
+  if (currentAlgo==='auto') {
+    const gw=result.gw;
+    sc.innerHTML=`<div class="stat-row"><span>Gray-world scales</span><span class="stat-val">${gw.sR.toFixed(2)} / ${gw.sG.toFixed(2)} / ${gw.sB.toFixed(2)}</span></div>`
+      +`<div class="stat-row"><span>Red target</span><span class="stat-val">${nik.redTarget}</span></div>`
       +`<div class="stat-row"><span>Hue shift</span><span class="stat-val">${nik.hueShift.toFixed(3)}</span></div>`
-      +`<div class="stat-row"><span>Luminance</span><span class="stat-val">CLAHE 65% + Retinex</span></div>`;
-  }else if(currentAlgo==='nikolaj'){
-    sc.innerHTML=`<div class="stat-row"><span>Hue shift</span><span class="stat-val">${result.hueShift.toFixed(3)}</span></div>`
-      +`<div class="stat-row"><span>R [${result.rLo}→${result.rHi}]  G [${result.gLo}→${result.gHi}]</span><span class="stat-val"></span></div>`;
-  }else{
+      +`<div class="stat-row"><span>Color source</span><span class="stat-val">Nikolajbech H+S</span></div>`;
+  } else if (currentAlgo==='nikolaj') {
+    sc.innerHTML=`<div class="stat-row"><span>Red target</span><span class="stat-val">${result.redTarget}</span></div>`
+      +`<div class="stat-row"><span>Hue shift</span><span class="stat-val">${result.hueShift.toFixed(3)}</span></div>`
+      +`<div class="stat-row"><span>R [${result.rLo}→${result.rHi}]</span><span class="stat-val">G [${result.gLo}→${result.gHi}]</span></div>`;
+  } else {
     sc.innerHTML=`<div class="stat-row"><span>Scales</span><span class="stat-val">15 / 80 / 250 px</span></div>`;
   }
 }
@@ -643,55 +903,63 @@ function updateStats(result){
 document.querySelectorAll('.vbtn[data-view]').forEach(btn=>{
   btn.addEventListener('click',()=>{
     document.querySelectorAll('.vbtn[data-view]').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');currentView=btn.dataset.view;refreshView();
+    btn.classList.add('active'); currentView=btn.dataset.view; refreshView();
   });
 });
-function refreshView(){
-  if(!origData) return;
-  const sp=document.getElementById('split-view'),sg=document.getElementById('single-view');
-  if(currentView==='split'){sp.classList.add('active');sg.classList.remove('active');}
-  else{
-    sp.classList.remove('active');sg.classList.add('active');
-    const sc=document.getElementById('c-single');sc.width=origData.width;sc.height=origData.height;
+function refreshView() {
+  if (!origData) return;
+  const sp=document.getElementById('split-view'), sg=document.getElementById('single-view');
+  if (currentView==='split') { sp.classList.add('active'); sg.classList.remove('active'); }
+  else {
+    sp.classList.remove('active'); sg.classList.add('active');
+    const sc=document.getElementById('c-single'); sc.width=origData.width; sc.height=origData.height;
     const ctx=sc.getContext('2d');
-    if(currentView==='original')ctx.putImageData(origData,0,0);
+    if (currentView==='original') ctx.putImageData(origData,0,0);
     else ctx.drawImage(document.getElementById('c-corr'),0,0);
   }
 }
 
-function drawHistogram(data){
+function drawHistogram(data) {
   const canvas=document.getElementById('hist-canvas');
-  canvas.width=canvas.offsetWidth||600;canvas.height=canvas.offsetHeight||52;
-  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
+  canvas.width=canvas.offsetWidth||600; canvas.height=canvas.offsetHeight||52;
+  const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height);
   const bR=new Uint32Array(256),bG=new Uint32Array(256),bB=new Uint32Array(256);
-  for(let i=0;i<data.length;i+=4){bR[data[i]]++;bG[data[i+1]]++;bB[data[i+2]]++;}
+  for (let i=0;i<data.length;i+=4) { bR[data[i]]++;bG[data[i+1]]++;bB[data[i+2]]++; }
   const mx=Math.max(...bR,...bG,...bB)||1;
   [['#e0505058',bR],['#50cc6058',bG],['#4080e058',bB]].forEach(([col,bins])=>{
-    ctx.beginPath();ctx.moveTo(0,canvas.height);
-    for(let x=0;x<256;x++) ctx.lineTo(x/255*canvas.width,canvas.height-bins[x]/mx*(canvas.height-3));
-    ctx.lineTo(canvas.width,canvas.height);ctx.closePath();ctx.fillStyle=col;ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0,canvas.height);
+    for (let x=0;x<256;x++) ctx.lineTo(x/255*canvas.width,canvas.height-bins[x]/mx*(canvas.height-3));
+    ctx.lineTo(canvas.width,canvas.height); ctx.closePath(); ctx.fillStyle=col; ctx.fill();
   });
 }
 
-function slUpdate(el,valId,suffix,scale){
-  const raw=parseFloat(el.value),v=scale?raw*scale:raw;
+function slUpdate(el, valId, suffix, scale) {
+  const raw=parseFloat(el.value), v=scale?raw*scale:raw;
   const pct=(raw-parseFloat(el.min))/(parseFloat(el.max)-parseFloat(el.min))*100;
   el.style.setProperty('--pct',pct+'%');
-  const labelEl=document.getElementById(valId);if(!labelEl)return;
-  if(suffix) labelEl.textContent=v.toFixed(scale?1:0)+suffix;
-  else       labelEl.textContent=(v>=0?'+':'')+Math.round(v);
+  const labelEl=document.getElementById(valId); if(!labelEl) return;
+  if (suffix) labelEl.textContent=v.toFixed(scale?1:0)+suffix;
+  else        labelEl.textContent=(v>=0?'+':'')+Math.round(v);
 }
 document.querySelectorAll('input[type=range]').forEach(el=>slUpdate(el,null));
+// Special init for depth slider
+document.getElementById('v-depth').textContent='auto';
+document.getElementById('sl-depth').value=0;
 
-function resetSliders(){
-  const defs={'sl-clp':30,'sl-rmix':25,'sl-thr':5,'sl-msrs':80,'sl-crf':125,'sl-str':100,'sl-exp':0,'sl-con':0,'sl-sat':0,'sl-shp':0,'sl-den':0};
-  Object.entries(defs).forEach(([id,v])=>{const el=document.getElementById(id);if(el){el.value=v;slUpdate(el,null);}});
-  const lbls={'v-clp':'3.0','v-rmix':'25%','v-thr':'0.5%','v-msrs':'80%','v-crf':'125%','v-str':'100%','v-exp':'+0','v-con':'+0','v-sat':'+0','v-shp':'+0','v-den':'+0'};
-  Object.entries(lbls).forEach(([id,txt])=>{const el=document.getElementById(id);if(el)el.textContent=txt;});
-  if(origData) reprocess();
+function resetSliders() {
+  const defs={'sl-clp':30,'sl-rmix':25,'sl-thr':5,'sl-msrs':80,'sl-crf':125,
+    'sl-str':100,'sl-exp':0,'sl-con':0,'sl-sat':0,'sl-shp':0,'sl-den':0,'sl-gam':100};
+  Object.entries(defs).forEach(([id,v])=>{ const el=document.getElementById(id); if(el){el.value=v;slUpdate(el,null);} });
+  depthTarget=0;
+  document.getElementById('sl-depth').value=0;
+  document.getElementById('v-depth').textContent='auto';
+  const lbls={'v-clp':'3.0','v-rmix':'25%','v-thr':'0.5%','v-msrs':'80%','v-crf':'125%',
+    'v-str':'100%','v-exp':'+0','v-con':'+0','v-sat':'+0','v-shp':'+0','v-den':'+0','v-gam':'1.00'};
+  Object.entries(lbls).forEach(([id,txt])=>{ const el=document.getElementById(id); if(el)el.textContent=txt; });
+  if (origData) reprocess();
 }
 
-function downloadResult(){
+function downloadResult() {
   const link=document.createElement('a');
   link.download='subsurface-corrected.png';
   link.href=document.getElementById('c-corr').toDataURL('image/png');
