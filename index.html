@@ -188,16 +188,16 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2);}
             <input type="range" id="sl-sat" min="-50" max="100" value="0" oninput="onSlider(this,'val-sat'); applyFilter()">
           </div>
           <div class="slider-row">
-            <div class="slider-header"><span class="slider-name">Water clarity</span><span class="slider-val" id="val-cla">+20</span></div>
-            <input type="range" id="sl-cla" min="0" max="100" value="20" oninput="onSlider(this,'val-cla'); applyFilter()">
+            <div class="slider-header"><span class="slider-name">Water clarity</span><span class="slider-val" id="val-cla">+10</span></div>
+            <input type="range" id="sl-cla" min="0" max="100" value="10" oninput="onSlider(this,'val-cla'); applyFilter()">
           </div>
           <div class="slider-row">
             <div class="slider-header"><span class="slider-name">Gamma</span><span class="slider-val" id="val-gam">1.00</span></div>
             <input type="range" id="sl-gam" min="70" max="150" value="100" oninput="onSlider(this,'val-gam','',0.01,true); applyFilter()">
           </div>
           <div class="slider-row">
-            <div class="slider-header"><span class="slider-name">Denoise</span><span class="slider-val" id="val-den">+15</span></div>
-            <input type="range" id="sl-den" min="0" max="100" value="15" oninput="onSlider(this,'val-den'); applyFilter()">
+            <div class="slider-header"><span class="slider-name">Denoise</span><span class="slider-val" id="val-den">+10</span></div>
+            <input type="range" id="sl-den" min="0" max="100" value="10" oninput="onSlider(this,'val-den'); applyFilter()">
           </div>
           <div class="slider-row">
             <div class="slider-header"><span class="slider-name">Histogram clip %</span><span class="slider-val" id="val-thr">0.5%</span></div>
@@ -370,22 +370,16 @@ function computeFilter(pixels, threshPct) {
     rSum += pixels[i]; gSum += pixels[i+1]; bSum += pixels[i+2];
   }
   const avgR = rSum / n, avgG = gSum / n, avgB = bSum / n;
-  const mids = estimateMidtoneAverages(pixels) || { r: avgR, g: avgG, b: avgB };
-
-  const neutralTarget = (mids.r + mids.g + mids.b) / 3;
-  const rawRScale = neutralTarget / Math.max(1, mids.r);
-  const rawGScale = neutralTarget / Math.max(1, mids.g);
-  const rawBScale = neutralTarget / Math.max(1, mids.b);
 
   let hueShift = 0;
   if (avgR < RED_TARGET) {
     const blendableMean = (avgG + avgB) / 2;
-    hueShift = blendableMean > 0 ? Math.min(0.85, (RED_TARGET - avgR) / blendableMean) : 0;
+    hueShift = blendableMean > 0 ? Math.min(0.6, (RED_TARGET - avgR) / blendableMean) : 0;
   }
 
   const histR = new Uint32Array(256), histG = new Uint32Array(256), histB = new Uint32Array(256);
   for (let i = 0; i < pixels.length; i += 4) {
-    const rMixed = pixels[i] + hueShift * (0.55 * pixels[i+1] + 0.45 * pixels[i+2]);
+    const rMixed = pixels[i] + hueShift * (pixels[i+1] + pixels[i+2]) / 2;
     histR[Math.round(clamp255(rMixed))]++;
     histG[pixels[i+1]]++;
     histB[pixels[i+2]]++;
@@ -404,19 +398,15 @@ function computeFilter(pixels, threshPct) {
   const [gLo, gHi] = loHi(histG, n, threshPct);
   const [bLo, bHi] = loHi(histB, n, threshPct);
 
-  const histRScale = 255 / Math.max(1, rHi - rLo);
-  const histGScale = 255 / Math.max(1, gHi - gLo);
-  const histBScale = 255 / Math.max(1, bHi - bLo);
+  const rGain = Math.min(2.2, 255 / Math.max(1, rHi - rLo));
+  const gGain = Math.min(1.7, 255 / Math.max(1, gHi - gLo));
+  const bGain = Math.min(1.7, 255 / Math.max(1, bHi - bLo));
 
-  const rGain = Math.min(2.4, histRScale * Math.max(1, Math.min(1.35, rawRScale)));
-  const gGain = Math.min(1.9, histGScale * Math.max(0.95, Math.min(1.15, rawGScale)));
-  const bGain = Math.min(1.9, histBScale * Math.max(0.95, Math.min(1.1, rawBScale)));
+  const rOff = -rLo * rGain;
+  const gOff = -gLo * gGain;
+  const bOff = -bLo * bGain;
 
-  const rOff = -rLo * histRScale;
-  const gOff = -gLo * histGScale;
-  const bOff = -bLo * histBScale;
-
-  const matrix = { rGain, gGain, bGain, rOff, gOff, bOff, hueShift, rawRScale, rawGScale, rawBScale };
+  const matrix = { rGain, gGain, bGain, rOff, gOff, bOff, hueShift };
   return { matrix, avgR: Math.round(avgR), avgG: Math.round(avgG), avgB: Math.round(avgB), hueShift, rGain, rOff, gGain, gOff, bGain, bOff, rLo, rHi, gLo, gHi, bLo, bHi };
 }
 
@@ -447,8 +437,9 @@ function applyMatrix(srcData, filter, strength, brightness, contrast, vibrance, 
     yArr[p] = y; cbArr[p] = cb; crArr[p] = cr;
   }
 
-  const cbSmooth = denoiseAmt > 0.001 ? boxBlurGray(cbArr, w, h, denoiseAmt > 0.55 ? 2 : 1) : cbArr;
-  const crSmooth = denoiseAmt > 0.001 ? boxBlurGray(crArr, w, h, denoiseAmt > 0.55 ? 2 : 1) : crArr;
+  const radius = denoiseAmt >= 0.45 ? 2 : (denoiseAmt > 0.01 ? 1 : 0);
+  const cbSmooth = radius ? boxBlurGray(cbArr, w, h, radius) : cbArr;
+  const crSmooth = radius ? boxBlurGray(crArr, w, h, radius) : crArr;
   const localMean = boxBlurGray(yArr, w, h, 5);
 
   for (let i = 0, p = 0; i < src.length; i += 4, p++) {
@@ -457,12 +448,13 @@ function applyMatrix(srcData, filter, strength, brightness, contrast, vibrance, 
 
     const lum0 = yArr[p];
     const toneMask = 1 - smoothstep(150, 245, lum0);
-    const localStrength = s * (0.35 + 0.65 * toneMask);
+    const localStrength = Math.min(1, s * (0.2 + 0.6 * toneMask));
 
-    const blueDominance = bOrig / Math.max(1, rOrig + gOrig);
-    const redCap = blueDominance > 0.9 ? 1.55 : 1.9;
+    let redMix = rd + filter.hueShift * (0.35 * gd + 0.25 * bd);
+    const maxRecoveredRed = Math.max(rOrig * 1.9, gOrig * 1.35, bOrig * 1.1, 24);
+    redMix = Math.min(redMix, maxRecoveredRed);
 
-    let r1 = rd * Math.min(filter.rGain, redCap) + filter.hueShift * (0.55 * gd + 0.45 * bd) + filter.rOff;
+    let r1 = redMix * filter.rGain + filter.rOff;
     let g1 = gd * filter.gGain + filter.gOff;
     let b1 = bd * filter.bGain + filter.bOff;
 
@@ -471,7 +463,7 @@ function applyMatrix(srcData, filter, strength, brightness, contrast, vibrance, 
     b1 = bOrig + localStrength * (b1 - bOrig);
 
     const detail = lum0 - localMean[p];
-    const detailBoost = detail * (0.3 + 0.9 * clarityAmt) * (0.55 + 0.45 * toneMask);
+    const detailBoost = detail * (0.18 + 0.55 * clarityAmt) * (0.45 + 0.55 * toneMask);
     r1 += detailBoost; g1 += detailBoost; b1 += detailBoost;
 
     r1 += brightness; g1 += brightness; b1 += brightness;
@@ -486,7 +478,7 @@ function applyMatrix(srcData, filter, strength, brightness, contrast, vibrance, 
     const lum = 0.299 * r1 + 0.587 * g1 + 0.114 * b1;
     const maxC = Math.max(r1, g1, b1), minC = Math.min(r1, g1, b1);
     const sat = (maxC - minC) / Math.max(1, maxC);
-    const vAmt = vibF * (1 - sat) * (0.6 + 0.4 * toneMask);
+    const vAmt = vibF * (1 - sat) * (0.55 + 0.45 * toneMask);
     r1 += (r1 - lum) * vAmt;
     g1 += (g1 - lum) * vAmt;
     b1 += (b1 - lum) * vAmt;
@@ -623,16 +615,16 @@ function onSlider(el, valId, suffix, scale, forceFixed) {
 document.querySelectorAll('input[type=range]').forEach(el => onSlider(el, null));
 
 function resetSliders() {
-  const defs = {'sl-str':100,'sl-shp':0,'sl-bri':0,'sl-con':0,'sl-sat':0,'sl-cla':20,'sl-gam':100,'sl-den':15,'sl-thr':5};
+  const defs = {'sl-str':100,'sl-shp':0,'sl-bri':0,'sl-con':0,'sl-sat':0,'sl-cla':10,'sl-gam':100,'sl-den':10,'sl-thr':5};
   Object.entries(defs).forEach(([id,v]) => { const el=document.getElementById(id); el.value=v; onSlider(el,null); });
   document.getElementById('val-str').textContent = '100%';
   document.getElementById('val-shp').textContent = '+0';
   document.getElementById('val-bri').textContent = '+0';
   document.getElementById('val-con').textContent = '+0';
   document.getElementById('val-sat').textContent = '+0';
-  document.getElementById('val-cla').textContent = '+20';
+  document.getElementById('val-cla').textContent = '+10';
   document.getElementById('val-gam').textContent = '1.00';
-  document.getElementById('val-den').textContent = '+15';
+  document.getElementById('val-den').textContent = '+10';
   document.getElementById('val-thr').textContent = '0.5%';
   recompute();
 }
