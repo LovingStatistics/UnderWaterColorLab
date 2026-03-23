@@ -101,7 +101,7 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
 <header>
   <div class="logo-icon">🌊</div>
   <div class="logo-text"><h1>Subsurface</h1><span>Underwater Color Lab</span></div>
-  <div class="hbadge">v3.1 · 8 enhancements + AI upscale</div>
+  <div class="hbadge">v3.2 · snorkeling mode</div>
 </header>
 <main>
 <div class="canvas-area">
@@ -150,6 +150,10 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
       <button class="abtn" id="a-msr" onclick="setAlgo('msr')">
         <span class="abtitle">💡 Retinex</span>
         <span class="absub">Illumination separation & restoration</span>
+      </button>
+      <button class="abtn" id="a-snorkel" onclick="setAlgo('snorkel')">
+        <span class="abtitle">🤿 Snorkeling</span>
+        <span class="absub">Surface-down: deglare, caustic levelling, cyan cast removal</span>
       </button>
     </div>
   </div>
@@ -202,6 +206,28 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.22)}
       <div class="sl-row">
         <div class="sl-hdr"><span class="sl-name">Histogram clip %</span><span class="sl-val" id="v-thr">0.5%</span></div>
         <input type="range" id="sl-thr" min="1" max="40" value="5" oninput="slUpdate(this,'v-thr','%',0.1);reprocess()">
+      </div>
+    </div>
+  </div>
+
+  <div class="psec" id="ctrl-snorkel" style="display:none">
+    <div class="slabel">Snorkeling Controls</div>
+    <div class="slider-group">
+      <div class="sl-row">
+        <div class="sl-hdr"><span class="sl-name">Deglare strength</span><span class="sl-val" id="v-dgl">60%</span></div>
+        <input type="range" id="sl-dgl" min="0" max="100" value="60" oninput="slUpdate(this,'v-dgl','%');reprocess()">
+      </div>
+      <div class="sl-row">
+        <div class="sl-hdr"><span class="sl-name">Caustic levelling</span><span class="sl-val" id="v-cst">50%</span></div>
+        <input type="range" id="sl-cst" min="0" max="100" value="50" oninput="slUpdate(this,'v-cst','%');reprocess()">
+      </div>
+      <div class="sl-row">
+        <div class="sl-hdr"><span class="sl-name">Cyan cast removal</span><span class="sl-val" id="v-ccr">50%</span></div>
+        <input type="range" id="sl-ccr" min="0" max="100" value="50" oninput="slUpdate(this,'v-ccr','%');reprocess()">
+      </div>
+      <div class="sl-row">
+        <div class="sl-hdr"><span class="sl-name">Surface dehaze</span><span class="sl-val" id="v-sdh">40%</span></div>
+        <input type="range" id="sl-sdh" min="0" max="100" value="40" oninput="slUpdate(this,'v-sdh','%');reprocess()">
       </div>
     </div>
   </div>
@@ -407,12 +433,160 @@ function postProcess(src, w, h, p) {
   return out;
 }
 
+
+// ─────────────────────────────────────────────────────────
+// SNORKELING MODE
+//
+// Surface-down photos have four distinct problems vs deep-water:
+//
+// Step 1 — DEGLARE: Highlight roll-off curve compresses blown
+//   specular patches from sunlight on the water surface.
+//   Uses tanh soft-knee: leaves midtones untouched, rolls off
+//   anything above threshold toward a soft ceiling.
+//
+// Step 2 — CAUSTIC LEVELLING: Surface ripples project bright/dark
+//   bands across the scene. We blur the luminance field heavily to
+//   get the slow illumination envelope, then normalise each pixel
+//   back toward the scene mean — smoothing caustics without
+//   flattening genuine edges or textures.
+//
+// Step 3 — CYAN CAST REMOVAL: Shallow water has a cyan cast
+//   (G+B elevated, R slightly low) rather than a deep blue cast.
+//   We measure the imbalance and apply a targeted warm push,
+//   capped so we never flip to an orange cast.
+//
+// Step 4 — SURFACE DEHAZE: Near-surface scattering creates a milky
+//   veil. We estimate the veil brightness from the 95th-percentile
+//   of the dark channel and subtract it, re-stretching the result.
+// ─────────────────────────────────────────────────────────
+function algoSnorkel(data, w, h, deglare, caustic, cyanRemove, dehaze) {
+  const n = w * h;
+  const dgl = deglare / 100;
+  const cst = caustic  / 100;
+  const ccr = cyanRemove / 100;
+  const sdh = dehaze   / 100;
+
+  // Step 1: Deglare — tanh soft highlight roll-off
+  const knee = 200;
+  const glareRange = 255 - knee;
+  const deglared = new Uint8ClampedArray(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    for (let ch = 0; ch < 3; ch++) {
+      const v = data[i + ch];
+      if (v <= knee) {
+        deglared[i + ch] = v;
+      } else {
+        const excess = (v - knee) / glareRange;
+        const rolled = knee + glareRange * Math.tanh(excess * 1.5) / Math.tanh(1.5);
+        deglared[i + ch] = Math.round(knee + (rolled - knee) * dgl + (v - knee) * (1 - dgl));
+      }
+    }
+    deglared[i + 3] = data[i + 3];
+  }
+  let src = deglared;
+
+  // Step 2: Caustic levelling — large-radius local normalisation
+  if (cst > 0) {
+    const lum = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      lum[i] = 0.299*src[i*4] + 0.587*src[i*4+1] + 0.114*src[i*4+2];
+    }
+    const r = Math.max(4, Math.round(Math.min(w, h) / 10));
+    const lumBuf = new Uint8ClampedArray(n * 4);
+    for (let i = 0; i < n; i++) {
+      lumBuf[i*4]=lumBuf[i*4+1]=lumBuf[i*4+2]=Math.round(lum[i]); lumBuf[i*4+3]=255;
+    }
+    let lb = boxBlurSnorkel(lumBuf, w, h, r);
+    lb = boxBlurSnorkel(lb, w, h, r);
+    lb = boxBlurSnorkel(lb, w, h, r);
+    let lumSum = 0;
+    for (let i = 0; i < n; i++) lumSum += lum[i];
+    const lumMean = lumSum / n;
+    const levelled = new Uint8ClampedArray(src.length);
+    for (let i = 0; i < n; i++) {
+      const localIllum = lb[i*4] || 1;
+      const factor = lumMean / localIllum;
+      const blend = cst * Math.min(1, Math.abs(factor - 1) * 3);
+      for (let ch = 0; ch < 3; ch++) {
+        const corrected = src[i*4+ch] * (1 + (factor - 1) * blend);
+        levelled[i*4+ch] = Math.max(0, Math.min(255, Math.round(corrected)));
+      }
+      levelled[i*4+3] = src[i*4+3];
+    }
+    src = levelled;
+  }
+
+  // Step 3: Cyan/green cast removal
+  if (ccr > 0) {
+    let rS=0, gS=0, bS=0;
+    for (let i=0; i<src.length; i+=4) { rS+=src[i]; gS+=src[i+1]; bS+=src[i+2]; }
+    const avgR=rS/n, avgG=gS/n, avgB=bS/n;
+    const cyanBias = ((avgG+avgB)/2 - avgR) / (((avgG+avgB)/2) || 1);
+    if (cyanBias > 0.03) {
+      const rBoost  = Math.min(0.25, cyanBias * 0.6) * ccr;
+      const gbDamp  = Math.min(0.12, cyanBias * 0.25) * ccr;
+      const corrected = new Uint8ClampedArray(src.length);
+      for (let i=0; i<src.length; i+=4) {
+        corrected[i]   = Math.max(0, Math.min(255, Math.round(src[i]   * (1+rBoost))));
+        corrected[i+1] = Math.max(0, Math.min(255, Math.round(src[i+1] * (1-gbDamp))));
+        corrected[i+2] = Math.max(0, Math.min(255, Math.round(src[i+2] * (1-gbDamp*0.6))));
+        corrected[i+3] = src[i+3];
+      }
+      src = corrected;
+    }
+  }
+
+  // Step 4: Surface dehaze via 95th-percentile dark channel
+  if (sdh > 0) {
+    const darks = new Uint8Array(n);
+    for (let i=0; i<n; i++) darks[i] = Math.min(src[i*4], src[i*4+1], src[i*4+2]);
+    const sorted = [...darks].sort((a,b)=>a-b);
+    const veil = sorted[Math.floor(n * 0.95)];
+    if (veil > 10) {
+      const deveiled = new Uint8ClampedArray(src.length);
+      for (let i=0; i<src.length; i+=4) {
+        for (let ch=0; ch<3; ch++) {
+          const dehazed = (src[i+ch] - veil*sdh) / (1 - veil/255*sdh);
+          deveiled[i+ch] = Math.max(0, Math.min(255, Math.round(dehazed)));
+        }
+        deveiled[i+3] = src[i+3];
+      }
+      src = deveiled;
+    }
+  }
+
+  return { pixels: src };
+}
+
+// 2-pass separable box blur (luminance channel, for caustic pass)
+function boxBlurSnorkel(src, w, h, r) {
+  const tmp = new Uint8ClampedArray(src.length);
+  for (let y=0; y<h; y++) { for (let x=0; x<w; x++) {
+    let s=0, cnt=0;
+    for (let dx=-r; dx<=r; dx++) {
+      const nx=Math.max(0,Math.min(w-1,x+dx));
+      s+=src[(y*w+nx)*4]; cnt++;
+    }
+    const o=(y*w+x)*4; tmp[o]=tmp[o+1]=tmp[o+2]=s/cnt; tmp[o+3]=255;
+  }}
+  const out = new Uint8ClampedArray(src.length);
+  for (let x=0; x<w; x++) { for (let y=0; y<h; y++) {
+    let s=0, cnt=0;
+    for (let dy=-r; dy<=r; dy++) {
+      const ny=Math.max(0,Math.min(h-1,y+dy));
+      s+=tmp[(ny*w+x)*4]; cnt++;
+    }
+    const o=(y*w+x)*4; out[o]=out[o+1]=out[o+2]=s/cnt; out[o+3]=255;
+  }}
+  return out;
+}
+
 // UI HANDLERS
 function setAlgo(name) {
   currentAlgo=name;
   document.querySelectorAll('.abtn').forEach(b=>b.classList.remove('active'));
   document.getElementById('a-'+name).classList.add('active');
-  ['ctrl-auto','ctrl-nikolaj','ctrl-emerald'].forEach(id=>{
+  ['ctrl-auto','ctrl-nikolaj','ctrl-emerald','ctrl-snorkel'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.style.display='none';
   });
@@ -428,6 +602,13 @@ function reprocess() {
     const data=origData.data, w=origData.width, h=origData.height;
     let res;
     if (currentAlgo==='auto') res = algoNikolaj(data, 0.5, depthTarget);
+    else if (currentAlgo==='snorkel') {
+      res = algoSnorkel(data, w, h,
+        parseFloat(document.getElementById('sl-dgl').value),
+        parseFloat(document.getElementById('sl-cst').value),
+        parseFloat(document.getElementById('sl-ccr').value),
+        parseFloat(document.getElementById('sl-sdh').value));
+    }
     else if (currentAlgo==='emerald') res = algoEmerald(data, parseFloat(document.getElementById('sl-mbias').value), parseFloat(document.getElementById('sl-ethr').value)*0.1);
     else if (currentAlgo==='nikolaj') res = algoNikolaj(data, parseFloat(document.getElementById('sl-thr').value)*0.1, 0);
     else res = {pixels: data}; // Fallback
@@ -508,6 +689,69 @@ function downloadResult() {
   link.download='subsurface-pro.png';
   link.href=document.getElementById('c-corr').toDataURL();
   link.click();
+}
+
+// ── UpscalerJS (lazy-loaded on demand) ──
+let _upscalerReady = false;
+let _upscalerLoading = false;
+
+async function runUpscale() {
+  const statusEl = document.getElementById('upscale-status');
+  statusEl.style.display = 'block';
+
+  if (!_upscalerReady && !_upscalerLoading) {
+    _upscalerLoading = true;
+    statusEl.textContent = 'Loading TensorFlow.js + UpscalerJS (~5 MB)…';
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@latest/dist/umd/index.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/upscaler@latest/dist/browser/umd/upscaler.min.js');
+      _upscalerReady = true;
+      _upscalerLoading = false;
+      statusEl.textContent = 'UpscalerJS ready. Starting 2× upscale…';
+    } catch(e) {
+      statusEl.textContent = 'Failed to load UpscalerJS: ' + e.message;
+      _upscalerLoading = false;
+      return;
+    }
+  } else if (_upscalerLoading) {
+    statusEl.textContent = 'Still loading, please wait…';
+    return;
+  }
+
+  const btn = document.getElementById('btn-upscale');
+  btn.disabled = true;
+  statusEl.textContent = 'Running AI 2× upscale (may take 10–30s)…';
+
+  try {
+    const srcCanvas = document.getElementById('c-corr');
+    const srcImg = new Image();
+    srcImg.src = srcCanvas.toDataURL('image/png');
+    await new Promise(res => { srcImg.onload = res; });
+
+    const upscaler = new window.Upscaler({ model: window.DefaultUpscalerJSModel });
+    const upscaledSrc = await upscaler.upscale(srcImg, { patchSize: 64, padding: 6 });
+
+    const link = document.createElement('a');
+    link.download = 'subsurface-2x.png';
+    link.href = upscaledSrc;
+    link.click();
+    statusEl.textContent = '✓ 2× upscaled export saved!';
+  } catch(e) {
+    statusEl.textContent = 'Upscale error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Failed to load: ' + src));
+    document.head.appendChild(s);
+  });
 }
 </script>
 </body>
